@@ -53,6 +53,8 @@ import 'package:PiliPlus/plugin/pl_player/models/data_source.dart';
 import 'package:PiliPlus/plugin/pl_player/models/heart_beat_type.dart';
 import 'package:PiliPlus/plugin/pl_player/models/play_status.dart';
 import 'package:PiliPlus/services/download/download_service.dart';
+import 'package:PiliPlus/services/video_together/models.dart';
+import 'package:PiliPlus/services/video_together/playback.dart';
 import 'package:PiliPlus/services/video_together/session.dart';
 import 'package:PiliPlus/utils/accounts.dart';
 import 'package:PiliPlus/utils/connectivity_utils.dart';
@@ -766,9 +768,7 @@ class VideoDetailController extends GetxController
 
     if (isClosed) return;
 
-    if (!isFileSource) {
-      _bindVideoTogetherPlayback();
-    }
+    if (!isFileSource) _updateVideoTogetherPlaybackBinding();
 
     if (!isFileSource) {
       if (plPlayerController.enableBlock) {
@@ -787,7 +787,20 @@ class VideoDetailController extends GetxController
     defaultST = null;
   }
 
-  void _bindVideoTogetherPlayback() {
+  void bindVideoTogetherPlayback(
+    VideoTogetherPreparePlayback preparePlayback,
+  ) {
+    if (isFileSource || _videoTogetherPlayback != null) return;
+    _videoTogetherPlayback = PlPlayerVideoTogetherPlayback(
+      plPlayerController,
+      preparePlayback: preparePlayback,
+    );
+    _updateVideoTogetherPlaybackBinding();
+  }
+
+  void _updateVideoTogetherPlaybackBinding() {
+    final playback = _videoTogetherPlayback;
+    if (playback == null) return;
     final title = _videoTogetherTitle;
     final media = switch ((isUgc, epId)) {
       (false, final int epId) => VideoTogetherMediaBuilder.pgc(
@@ -800,8 +813,6 @@ class VideoDetailController extends GetxController
         part: _videoTogetherPart,
       ),
     };
-    final playback = PlPlayerVideoTogetherPlayback(plPlayerController);
-    _videoTogetherPlayback = playback;
     VideoTogetherSession.instance.bindPlayback(playback, media);
   }
 
@@ -826,10 +837,16 @@ class VideoDetailController extends GetxController
           .value
           .pages;
       final index = pages?.indexWhere((item) => item.cid == cid.value) ?? -1;
-      return index < 0 ? 1 : index + 1;
-    } catch (_) {
-      return 1;
+      if (index >= 0) return index + 1;
+    } catch (_) {}
+    final roomUrl = VideoTogetherSession.instance.room.value?.url;
+    if (roomUrl != null) {
+      final identity = VideoTogetherMediaIdentity.fromUrl(roomUrl);
+      if (identity.kind == 'video' && identity.id == bvid.toUpperCase()) {
+        return identity.part;
+      }
     }
+    return 1;
   }
 
   bool isQuerying = false;

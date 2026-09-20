@@ -431,4 +431,129 @@ void main() {
       },
     );
   });
+
+  group('VideoTogetherRemotePlaybackSynchronizer', () {
+    VideoTogetherRoom room({required bool paused}) => VideoTogetherRoom(
+      name: 'room',
+      lastUpdateClientTime: 10,
+      lastUpdateServerTime: 10,
+      playbackRate: 1,
+      currentTime: 12,
+      paused: paused,
+      url: 'https://www.bilibili.com/video/BV1ABC',
+      duration: 100,
+      isPublic: true,
+      isProtected: false,
+      videoTitle: 'title',
+      waitForLoading: false,
+      memberCount: 2,
+    );
+
+    Future<bool> apply(
+      VideoTogetherRemotePlaybackSynchronizer synchronizer,
+      _FakeVideoTogetherPlayback playback, {
+      required bool paused,
+    }) => synchronizer.apply(
+      playback: playback,
+      room: room(paused: paused),
+      getServerNow: () => 10,
+      syncPlaybackRate: true,
+      waitForLoading: true,
+      playingThreshold: 0.5,
+    );
+
+    test(
+      'prepares the stream before applying an initial remote play',
+      () async {
+        final synchronizer = VideoTogetherRemotePlaybackSynchronizer();
+        final playback = _FakeVideoTogetherPlayback();
+
+        expect(await apply(synchronizer, playback, paused: false), isTrue);
+        expect(playback.prepareCount, 1);
+        expect(playback.playCount, 1);
+        expect(playback.isReady, isTrue);
+        expect(playback.isPlaying, isTrue);
+        expect(playback.positionSeconds, 12);
+      },
+    );
+
+    test('retries preparation while the video URL is still loading', () async {
+      final synchronizer = VideoTogetherRemotePlaybackSynchronizer();
+      final playback = _FakeVideoTogetherPlayback(prepareMakesReady: false);
+
+      expect(await apply(synchronizer, playback, paused: false), isFalse);
+      expect(playback.prepareCount, 1);
+      expect(playback.playCount, 0);
+
+      playback.prepareMakesReady = true;
+      expect(await apply(synchronizer, playback, paused: false), isTrue);
+      expect(playback.prepareCount, 2);
+      expect(playback.playCount, 1);
+    });
+
+    test('does not initialize the stream while the room is paused', () async {
+      final synchronizer = VideoTogetherRemotePlaybackSynchronizer();
+      final playback = _FakeVideoTogetherPlayback();
+
+      expect(await apply(synchronizer, playback, paused: true), isFalse);
+      expect(playback.prepareCount, 0);
+      expect(playback.playCount, 0);
+      expect(playback.isReady, isFalse);
+    });
+  });
+}
+
+final class _FakeVideoTogetherPlayback implements VideoTogetherPlayback {
+  _FakeVideoTogetherPlayback({this.prepareMakesReady = true});
+
+  bool prepareMakesReady;
+  int prepareCount = 0;
+  int playCount = 0;
+  int pauseCount = 0;
+
+  @override
+  bool isReady = false;
+
+  @override
+  bool isPlaying = false;
+
+  @override
+  bool isBuffering = false;
+
+  @override
+  double positionSeconds = 0;
+
+  @override
+  double durationSeconds = 100;
+
+  @override
+  double playbackRate = 1;
+
+  @override
+  Future<void> prepare() async {
+    prepareCount += 1;
+    if (prepareMakesReady) isReady = true;
+  }
+
+  @override
+  Future<void> play() async {
+    playCount += 1;
+    isPlaying = true;
+  }
+
+  @override
+  Future<void> pause() async {
+    pauseCount += 1;
+    isPlaying = false;
+  }
+
+  @override
+  Future<void> seek(double seconds) async {
+    positionSeconds = seconds;
+  }
+
+  @override
+  Future<void> setPlaybackRate(double rate) async {
+    playbackRate = rate;
+  }
 }

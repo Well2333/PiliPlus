@@ -1,3 +1,7 @@
+import 'package:PiliPlus/services/video_together/models.dart';
+
+typedef VideoTogetherPreparePlayback = Future<void>? Function();
+
 abstract interface class VideoTogetherPlayback {
   bool get isReady;
   bool get isPlaying;
@@ -6,6 +10,7 @@ abstract interface class VideoTogetherPlayback {
   double get durationSeconds;
   double get playbackRate;
 
+  Future<void> prepare();
   Future<void> play();
   Future<void> pause();
   Future<void> seek(double seconds);
@@ -35,6 +40,70 @@ final class VideoTogetherRemotePlaybackReconciler {
   }
 
   void reset() => _lastShouldPause = null;
+}
+
+final class VideoTogetherRemotePlaybackSynchronizer {
+  final _reconciler = VideoTogetherRemotePlaybackReconciler();
+
+  Future<bool> apply({
+    required VideoTogetherPlayback playback,
+    required VideoTogetherRoom room,
+    required double Function() getServerNow,
+    required bool syncPlaybackRate,
+    required bool waitForLoading,
+    required double playingThreshold,
+  }) async {
+    try {
+      if (!playback.isReady) {
+        if (room.paused) return false;
+        await playback.prepare();
+        if (!playback.isReady) return false;
+      }
+
+      if (syncPlaybackRate &&
+          (playback.playbackRate - room.playbackRate).abs() > 0.01) {
+        await playback.setPlaybackRate(room.playbackRate);
+      }
+
+      final pauseForMemberLoading =
+          VideoTogetherSyncPolicy.shouldPauseForMemberLoading(
+            waitForLoadingEnabled: waitForLoading,
+            roomWaitsForLoading: room.waitForLoading,
+            roomPaused: room.paused,
+            localBuffering: playback.isBuffering,
+          );
+      final shouldPause = room.paused || pauseForMemberLoading;
+      final command = _reconciler.reconcile(
+        shouldPause: shouldPause,
+        isPlaying: playback.isPlaying,
+      );
+      switch (command) {
+        case VideoTogetherPlaybackCommand.none:
+          break;
+        case VideoTogetherPlaybackCommand.play:
+          await playback.play();
+        case VideoTogetherPlaybackCommand.pause:
+          await playback.pause();
+      }
+
+      final target = shouldPause
+          ? room.currentTime
+          : room.targetPosition(getServerNow());
+      final threshold = VideoTogetherSyncPolicy.correctionThreshold(
+        roomPaused: shouldPause,
+        playingThreshold: playingThreshold,
+      );
+      if ((playback.positionSeconds - target).abs() >= threshold) {
+        await playback.seek(target);
+      }
+      return true;
+    } catch (_) {
+      _reconciler.reset();
+      rethrow;
+    }
+  }
+
+  void reset() => _reconciler.reset();
 }
 
 abstract final class VideoTogetherSyncPolicy {

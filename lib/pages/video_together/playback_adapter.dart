@@ -3,9 +3,13 @@ import 'package:PiliPlus/services/video_together/models.dart';
 import 'package:PiliPlus/services/video_together/playback.dart';
 
 final class PlPlayerVideoTogetherPlayback implements VideoTogetherPlayback {
-  const PlPlayerVideoTogetherPlayback(this.controller);
+  const PlPlayerVideoTogetherPlayback(
+    this.controller, {
+    this.preparePlayback,
+  });
 
   final PlPlayerController controller;
+  final VideoTogetherPreparePlayback? preparePlayback;
 
   @override
   bool get isReady => controller.videoPlayerController != null;
@@ -25,6 +29,13 @@ final class PlPlayerVideoTogetherPlayback implements VideoTogetherPlayback {
 
   @override
   double get playbackRate => controller.playbackSpeed;
+
+  @override
+  Future<void> prepare() async {
+    if (isReady) return;
+    final future = preparePlayback?.call();
+    if (future != null) await future;
+  }
 
   @override
   Future<void> pause() => controller.pause();

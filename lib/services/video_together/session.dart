@@ -50,7 +50,7 @@ final class VideoTogetherSession {
   bool _resumeAfterLoading = false;
   bool _hasHeldControl = false;
   VideoTogetherRoom? _pendingFollowerRoom;
-  final _remotePlaybackReconciler = VideoTogetherRemotePlaybackReconciler();
+  final _remotePlaybackSynchronizer = VideoTogetherRemotePlaybackSynchronizer();
 
   bool get inRoom => role.value != VideoTogetherRole.none;
   String get roomName => _roomName;
@@ -72,7 +72,7 @@ final class VideoTogetherSession {
 
     _playback = playback;
     _media = media;
-    _remotePlaybackReconciler.reset();
+    _remotePlaybackSynchronizer.reset();
     if (openedExpectedRemote) {
       _expectedRemoteUrl = null;
       _pendingLocalMediaChange = false;
@@ -87,7 +87,7 @@ final class VideoTogetherSession {
     if (identical(_playback, playback)) {
       _playback = null;
       _lastPlaybackSnapshot = null;
-      _remotePlaybackReconciler.reset();
+      _remotePlaybackSynchronizer.reset();
     }
   }
 
@@ -190,7 +190,7 @@ final class VideoTogetherSession {
     _hasHeldControl = false;
     _pendingFollowerRoom = null;
     _lastPlaybackSnapshot = null;
-    _remotePlaybackReconciler.reset();
+    _remotePlaybackSynchronizer.reset();
     if (clearError) errorMessage.value = null;
   }
 
@@ -241,7 +241,7 @@ final class VideoTogetherSession {
         _hasHeldControl = true;
       } else {
         if (isControlling.value) {
-          _remotePlaybackReconciler.reset();
+          _remotePlaybackSynchronizer.reset();
         }
         role.value = VideoTogetherRole.member;
         isControlling.value = false;
@@ -467,10 +467,10 @@ final class VideoTogetherSession {
       }
 
       final playback = _playback;
-      final canSync =
-          playback?.isReady == true &&
-          _isSameMedia(_media?.url, currentRoom.url);
-      if (canSync) await _applyRemoteState(playback!, currentRoom);
+      var canSync = false;
+      if (playback != null && _isSameMedia(_media?.url, currentRoom.url)) {
+        canSync = await _applyRemoteState(playback, currentRoom);
+      }
 
       final now = _localNow();
       if (forceMemberUpdate || now - _lastMemberUpdateAt >= 1.8) {
@@ -501,55 +501,21 @@ final class VideoTogetherSession {
     unawaited(_syncFollower(currentRoom));
   }
 
-  Future<void> _applyRemoteState(
+  Future<bool> _applyRemoteState(
     VideoTogetherPlayback playback,
     VideoTogetherRoom currentRoom,
   ) async {
-    if (_applyingRemoteState) return;
+    if (_applyingRemoteState) return false;
     _applyingRemoteState = true;
     try {
-      if (VideoTogetherPreferences.syncPlaybackRate &&
-          (playback.playbackRate - currentRoom.playbackRate).abs() > 0.01) {
-        await playback.setPlaybackRate(currentRoom.playbackRate);
-      }
-
-      final pauseForMemberLoading =
-          VideoTogetherSyncPolicy.shouldPauseForMemberLoading(
-            waitForLoadingEnabled: VideoTogetherPreferences.waitForLoading,
-            roomWaitsForLoading: currentRoom.waitForLoading,
-            roomPaused: currentRoom.paused,
-            localBuffering: playback.isBuffering,
-          );
-      final shouldPause = currentRoom.paused || pauseForMemberLoading;
-
-      final command = _remotePlaybackReconciler.reconcile(
-        shouldPause: shouldPause,
-        isPlaying: playback.isPlaying,
-      );
-      try {
-        switch (command) {
-          case VideoTogetherPlaybackCommand.none:
-            break;
-          case VideoTogetherPlaybackCommand.play:
-            await playback.play();
-          case VideoTogetherPlaybackCommand.pause:
-            await playback.pause();
-        }
-      } catch (_) {
-        _remotePlaybackReconciler.reset();
-        rethrow;
-      }
-
-      final target = shouldPause
-          ? currentRoom.currentTime
-          : currentRoom.targetPosition(_client!.serverNow);
-      final threshold = VideoTogetherSyncPolicy.correctionThreshold(
-        roomPaused: shouldPause,
+      return await _remotePlaybackSynchronizer.apply(
+        playback: playback,
+        room: currentRoom,
+        getServerNow: () => _client!.serverNow,
+        syncPlaybackRate: VideoTogetherPreferences.syncPlaybackRate,
+        waitForLoading: VideoTogetherPreferences.waitForLoading,
         playingThreshold: VideoTogetherPreferences.syncThreshold,
       );
-      if ((playback.positionSeconds - target).abs() >= threshold) {
-        await playback.seek(target);
-      }
     } finally {
       _applyingRemoteState = false;
     }

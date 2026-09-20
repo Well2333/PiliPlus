@@ -172,6 +172,11 @@ class _VideoDetailPageVState extends State<VideoDetailPageV>
 
   // 获取视频资源，初始化播放器
   void videoSourceInit() {
+    if (!videoDetailController.isFileSource) {
+      videoDetailController.bindVideoTogetherPlayback(
+        _prepareVideoTogetherPlayback,
+      );
+    }
     videoDetailController.queryVideoUrl(autoFullScreenFlag: true);
     if (videoDetailController.autoPlay) {
       plPlayerController = videoDetailController.plPlayerController;
@@ -291,7 +296,20 @@ class _VideoDetailPageVState extends State<VideoDetailPageV>
   }
 
   /// 未开启自动播放时触发播放
-  Future<void>? handlePlay() {
+  Future<void>? handlePlay() => _activatePlayer(
+    autoplay: true,
+    autoFullScreenFlag: true,
+  );
+
+  Future<void>? _prepareVideoTogetherPlayback() {
+    if (!mounted || !isShowing) return null;
+    return _activatePlayer(autoplay: false, autoFullScreenFlag: false);
+  }
+
+  Future<void>? _activatePlayer({
+    required bool autoplay,
+    required bool autoFullScreenFlag,
+  }) {
     if (!videoDetailController.isFileSource) {
       if (videoDetailController.isQuerying) {
         if (kDebugMode) debugPrint('handlePlay: querying');
@@ -312,15 +330,15 @@ class _VideoDetailPageVState extends State<VideoDetailPageV>
     plPlayerController
       ..addStatusLister(playerListener)
       ..addPositionListener(positionListener);
-    if (plPlayerController.preInitPlayer) {
-      if (plPlayerController.autoEnterFullScreen) {
+    if (plPlayerController.videoPlayerController != null) {
+      if (autoplay && plPlayerController.autoEnterFullScreen) {
         plPlayerController.triggerFullScreen();
       }
-      return plPlayerController.play();
+      return autoplay ? plPlayerController.play() : Future<void>.value();
     } else {
       return videoDetailController.playerInit(
-        autoplay: true,
-        autoFullScreenFlag: true,
+        autoplay: autoplay,
+        autoFullScreenFlag: autoFullScreenFlag,
       );
     }
   }
