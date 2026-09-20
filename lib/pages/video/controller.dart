@@ -82,6 +82,8 @@ import 'package:media_kit/media_kit.dart' hide Subtitle;
 
 class VideoDetailController extends GetxController
     with GetTickerProviderStateMixin, BlockMixin {
+  PlPlayerVideoTogetherPlayback? _videoTogetherPlayback;
+
   /// 路由传参
   late final Map args;
   late String bvid;
@@ -798,10 +800,9 @@ class VideoDetailController extends GetxController
         part: _videoTogetherPart,
       ),
     };
-    VideoTogetherSession.instance.bindPlayback(
-      PlPlayerVideoTogetherPlayback(plPlayerController),
-      media,
-    );
+    final playback = PlPlayerVideoTogetherPlayback(plPlayerController);
+    _videoTogetherPlayback = playback;
+    VideoTogetherSession.instance.bindPlayback(playback, media);
   }
 
   String get _videoTogetherTitle {
@@ -1298,6 +1299,10 @@ class VideoDetailController extends GetxController
 
   @override
   void onClose() {
+    if (_videoTogetherPlayback case final playback?) {
+      VideoTogetherSession.instance.unbindPlayback(playback);
+      _videoTogetherPlayback = null;
+    }
     cid.close();
     if (isFileSource) {
       cacheLocalProgress();

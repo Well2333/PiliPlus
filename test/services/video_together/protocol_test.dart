@@ -1,4 +1,5 @@
 import 'package:PiliPlus/services/video_together/models.dart';
+import 'package:PiliPlus/services/video_together/playback.dart';
 import 'package:PiliPlus/services/video_together/protocol.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -143,6 +144,129 @@ void main() {
         'https://example.com/watch',
       );
       expect(decorated.sameAs(plain), isTrue);
+    });
+  });
+
+  group('VideoTogetherLocalChangeDetector', () {
+    VideoTogetherPlaybackSnapshot snapshot({
+      required double capturedAt,
+      required bool isPlaying,
+      required double position,
+      double rate = 1,
+      bool isBuffering = false,
+    }) => VideoTogetherPlaybackSnapshot(
+      capturedAt: capturedAt,
+      isReady: true,
+      isPlaying: isPlaying,
+      isBuffering: isBuffering,
+      positionSeconds: position,
+      durationSeconds: 100,
+      playbackRate: rate,
+    );
+
+    test('does not treat natural playback progress as a local action', () {
+      final previous = snapshot(
+        capturedAt: 100,
+        isPlaying: true,
+        position: 10,
+      );
+      final current = snapshot(
+        capturedAt: 100.4,
+        isPlaying: true,
+        position: 10.4,
+      );
+
+      expect(
+        VideoTogetherLocalChangeDetector.hasUserDrivenChange(
+          previous,
+          current,
+        ),
+        isFalse,
+      );
+    });
+
+    test('detects play and pause changes', () {
+      final previous = snapshot(
+        capturedAt: 100,
+        isPlaying: true,
+        position: 10,
+      );
+      final current = snapshot(
+        capturedAt: 100.2,
+        isPlaying: false,
+        position: 10.2,
+      );
+
+      expect(
+        VideoTogetherLocalChangeDetector.hasUserDrivenChange(
+          previous,
+          current,
+        ),
+        isTrue,
+      );
+    });
+
+    test('detects seeks and playback-rate changes', () {
+      final previous = snapshot(
+        capturedAt: 100,
+        isPlaying: true,
+        position: 10,
+      );
+      final seek = snapshot(
+        capturedAt: 100.4,
+        isPlaying: true,
+        position: 20,
+      );
+      final rate = snapshot(
+        capturedAt: 100.4,
+        isPlaying: true,
+        position: 10.4,
+        rate: 2,
+      );
+
+      expect(
+        VideoTogetherLocalChangeDetector.hasUserDrivenChange(previous, seek),
+        isTrue,
+      );
+      expect(
+        VideoTogetherLocalChangeDetector.hasUserDrivenChange(previous, rate),
+        isTrue,
+      );
+    });
+
+    test('ignores buffering transitions', () {
+      final previous = snapshot(
+        capturedAt: 100,
+        isPlaying: true,
+        position: 10,
+      );
+      final buffering = snapshot(
+        capturedAt: 100.4,
+        isPlaying: false,
+        position: 10.1,
+        isBuffering: true,
+      );
+
+      expect(
+        VideoTogetherLocalChangeDetector.hasUserDrivenChange(
+          previous,
+          buffering,
+        ),
+        isFalse,
+      );
+
+      final resumed = snapshot(
+        capturedAt: 100.8,
+        isPlaying: true,
+        position: 10.2,
+      );
+      expect(
+        VideoTogetherLocalChangeDetector.hasUserDrivenChange(
+          buffering,
+          resumed,
+        ),
+        isFalse,
+      );
     });
   });
 }

@@ -24,6 +24,7 @@ class _VideoTogetherSettingsPageState extends State<VideoTogetherSettingsPage> {
   late bool _syncPlaybackRate;
   late bool _waitForLoading;
   late bool _passwordProtected;
+  late bool _hidePlayerMenuEntry;
   late double _syncThreshold;
 
   @override
@@ -39,6 +40,7 @@ class _VideoTogetherSettingsPageState extends State<VideoTogetherSettingsPage> {
     _syncPlaybackRate = VideoTogetherPreferences.syncPlaybackRate;
     _waitForLoading = VideoTogetherPreferences.waitForLoading;
     _passwordProtected = VideoTogetherPreferences.passwordProtected;
+    _hidePlayerMenuEntry = VideoTogetherPreferences.hidePlayerMenuEntry;
     _syncThreshold = VideoTogetherPreferences.syncThreshold;
   }
 
@@ -95,7 +97,14 @@ class _VideoTogetherSettingsPageState extends State<VideoTogetherSettingsPage> {
         ),
         SwitchListTile(
           contentPadding: EdgeInsets.zero,
-          title: const Text('自动打开房主视频'),
+          title: const Text('隐藏播放器菜单入口'),
+          subtitle: const Text('在视频右上角 ⋮ 菜单中不显示“一起看”'),
+          value: _hidePlayerMenuEntry,
+          onChanged: (value) => setState(() => _hidePlayerMenuEntry = value),
+        ),
+        SwitchListTile(
+          contentPadding: EdgeInsets.zero,
+          title: const Text('自动打开房间视频'),
           subtitle: const Text('加入后自动打开支持的 B 站投稿或番剧页面'),
           value: _autoOpenVideo,
           onChanged: (value) => setState(() => _autoOpenVideo = value),
@@ -103,14 +112,14 @@ class _VideoTogetherSettingsPageState extends State<VideoTogetherSettingsPage> {
         SwitchListTile(
           contentPadding: EdgeInsets.zero,
           title: const Text('同步播放倍速'),
-          subtitle: const Text('成员播放器跟随房主倍速'),
+          subtitle: const Text('跟随当前控制端的播放倍速'),
           value: _syncPlaybackRate,
           onChanged: (value) => setState(() => _syncPlaybackRate = value),
         ),
         SwitchListTile(
           contentPadding: EdgeInsets.zero,
           title: const Text('等待成员缓冲'),
-          subtitle: const Text('服务端报告成员正在缓冲时，房主暂时暂停'),
+          subtitle: const Text('服务端报告其他成员正在缓冲时，控制端暂时暂停'),
           value: _waitForLoading,
           onChanged: (value) => setState(() => _waitForLoading = value),
         ),
@@ -191,6 +200,7 @@ class _VideoTogetherSettingsPageState extends State<VideoTogetherSettingsPage> {
         VideoTogetherPreferences.waitForLoadingKey: _waitForLoading,
         VideoTogetherPreferences.passwordProtectedKey: _passwordProtected,
         VideoTogetherPreferences.syncThresholdKey: _syncThreshold,
+        VideoTogetherPreferences.hidePlayerMenuEntryKey: _hidePlayerMenuEntry,
       });
       SmartDialog.showToast('设置已保存');
       if (widget.showAppBar) Get.back();

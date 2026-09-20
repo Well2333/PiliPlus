@@ -138,7 +138,8 @@ class _VideoTogetherPageState extends State<VideoTogetherPage> {
         ],
         const SizedBox(height: 24),
         const Text(
-          '创建房间后可再打开任意 B 站视频；加入者会自动打开房主正在播放的投稿或番剧。'
+          '创建房间后可再打开任意 B 站视频；加入者会自动打开房间当前的投稿或番剧。'
+          '任一成员播放、暂停、拖动或切换视频时都会接管同步控制。'
           '当前不支持 VideoTogether 的语音和 EasyShare 媒体中继。',
         ),
       ],
@@ -150,6 +151,7 @@ class _VideoTogetherPageState extends State<VideoTogetherPage> {
     final roleText = _session.role.value == VideoTogetherRole.host
         ? '房主'
         : '成员';
+    final controlText = _session.isControlling.value ? '控制中' : '跟随中';
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
@@ -167,7 +169,7 @@ class _VideoTogetherPageState extends State<VideoTogetherPage> {
                         style: Theme.of(context).textTheme.titleLarge,
                       ),
                     ),
-                    Chip(label: Text(roleText)),
+                    Chip(label: Text('$roleText · $controlText')),
                   ],
                 ),
                 const SizedBox(height: 8),

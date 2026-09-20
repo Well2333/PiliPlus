@@ -10,6 +10,7 @@ abstract final class VideoTogetherPreferences {
   static const passwordProtectedKey = 'videoTogetherPasswordProtected';
   static const syncThresholdKey = 'videoTogetherSyncThreshold';
   static const lastRoomNameKey = 'videoTogetherLastRoomName';
+  static const hidePlayerMenuEntryKey = 'videoTogetherHidePlayerMenuEntry';
 
   static String get server => GStorage.setting.get(
     serverKey,
@@ -39,4 +40,7 @@ abstract final class VideoTogetherPreferences {
 
   static String get lastRoomName =>
       GStorage.setting.get(lastRoomNameKey, defaultValue: '');
+
+  static bool get hidePlayerMenuEntry =>
+      GStorage.setting.get(hidePlayerMenuEntryKey, defaultValue: false);
 }

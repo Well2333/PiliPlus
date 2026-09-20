@@ -39,6 +39,9 @@ final class VideoTogetherClient {
   bool _connected = false;
   double _clockOffset = 0;
   double _bestRoundTrip = double.infinity;
+  double? _joinSentAt;
+  double? _pendingUpdateClientTime;
+  double? _updateSentAt;
 
   bool get isConnected => _connected;
   bool get isConnecting => _connecting;
@@ -93,13 +96,17 @@ final class VideoTogetherClient {
   }) {
     final completer = Completer<VideoTogetherRoom>();
     _joinCompleter = completer;
+    _joinSentAt = _localNow;
     _send(
       VideoTogetherProtocol.joinRequest(roomName: roomName, password: password),
     );
     return completer.future.timeout(
       const Duration(seconds: 10),
       onTimeout: () {
-        if (identical(_joinCompleter, completer)) _joinCompleter = null;
+        if (identical(_joinCompleter, completer)) {
+          _joinCompleter = null;
+          _joinSentAt = null;
+        }
         throw TimeoutException('加入房间超时');
       },
     );
@@ -120,9 +127,12 @@ final class VideoTogetherClient {
     bool waitForResponse = false,
   }) {
     Completer<VideoTogetherRoom>? completer;
+    final sentAt = _localNow;
     if (waitForResponse) {
       completer = Completer<VideoTogetherRoom>();
       _updateCompleter = completer;
+      _pendingUpdateClientTime = lastUpdateClientTime;
+      _updateSentAt = sentAt;
     }
     _send(
       VideoTogetherProtocol.roomUpdateRequest(
@@ -137,14 +147,18 @@ final class VideoTogetherClient {
         duration: duration,
         isProtected: isProtected,
         videoTitle: videoTitle,
-        sendLocalTimestamp: _localNow,
+        sendLocalTimestamp: sentAt,
       ),
     );
     return completer?.future.timeout(
       const Duration(seconds: 10),
       onTimeout: () {
-        if (identical(_updateCompleter, completer)) _updateCompleter = null;
-        throw TimeoutException('创建房间超时');
+        if (identical(_updateCompleter, completer)) {
+          _updateCompleter = null;
+          _pendingUpdateClientTime = null;
+          _updateSentAt = null;
+        }
+        throw TimeoutException('更新房间超时');
       },
     );
   }
@@ -199,7 +213,13 @@ final class VideoTogetherClient {
     if (message['errorMessage'] case final String errorMessage) {
       onError(errorMessage);
       final error = StateError(errorMessage);
-      _completePending(error);
+      if (method == VideoTogetherProtocol.roomJoin) {
+        _completeJoinError(error);
+      } else if (method == VideoTogetherProtocol.roomUpdate) {
+        _completeUpdateError(error);
+      } else {
+        _completePending(error);
+      }
       return;
     }
 
@@ -223,14 +243,25 @@ final class VideoTogetherClient {
             method == VideoTogetherProtocol.roomUpdate ||
             method == VideoTogetherProtocol.memberUpdate) &&
         data is Map<String, dynamic>) {
+      final receivedAt = _localNow;
       final room = VideoTogetherRoom.fromJson(data);
+      final isOwnUpdate =
+          method == VideoTogetherProtocol.roomUpdate &&
+          _pendingUpdateClientTime != null &&
+          (room.lastUpdateClientTime - _pendingUpdateClientTime!).abs() <
+              0.0001;
       onRoom(method, room);
       if (method == VideoTogetherProtocol.roomJoin) {
+        _updateClockFromRoomTimestamp(room, _joinSentAt, receivedAt);
         _joinCompleter?.complete(room);
         _joinCompleter = null;
-      } else if (method == VideoTogetherProtocol.roomUpdate) {
+        _joinSentAt = null;
+      } else if (isOwnUpdate) {
+        _updateClockFromRoomTimestamp(room, _updateSentAt, receivedAt);
         _updateCompleter?.complete(room);
         _updateCompleter = null;
+        _pendingUpdateClientTime = null;
+        _updateSentAt = null;
       }
     }
   }
@@ -246,7 +277,7 @@ final class VideoTogetherClient {
       serverSend: serverSend,
       localReceive: localReceive,
     );
-    if (trip <= _bestRoundTrip) {
+    if (trip >= 0 && trip <= _bestRoundTrip) {
       _bestRoundTrip = trip;
       _clockOffset = VideoTogetherProtocol.clockOffset(
         localSend: localSend,
@@ -255,6 +286,19 @@ final class VideoTogetherClient {
         localReceive: localReceive,
       );
     }
+  }
+
+  void _updateClockFromRoomTimestamp(
+    VideoTogetherRoom room,
+    double? sentAt,
+    double receivedAt,
+  ) {
+    final timestamp = room.timestamp;
+    if (sentAt == null || timestamp == null || timestamp <= 0) return;
+    final trip = receivedAt - sentAt;
+    if (trip < 0 || trip > _bestRoundTrip) return;
+    _bestRoundTrip = trip;
+    _clockOffset = timestamp - ((sentAt + receivedAt) / 2);
   }
 
   void _onSocketError(Object error, StackTrace stackTrace) {
@@ -270,14 +314,25 @@ final class VideoTogetherClient {
   }
 
   void _completePending(Object error, [StackTrace? stackTrace]) {
+    _completeJoinError(error, stackTrace);
+    _completeUpdateError(error, stackTrace);
+  }
+
+  void _completeJoinError(Object error, [StackTrace? stackTrace]) {
     if (_joinCompleter case final completer? when !completer.isCompleted) {
       completer.completeError(error, stackTrace);
     }
+    _joinCompleter = null;
+    _joinSentAt = null;
+  }
+
+  void _completeUpdateError(Object error, [StackTrace? stackTrace]) {
     if (_updateCompleter case final completer? when !completer.isCompleted) {
       completer.completeError(error, stackTrace);
     }
-    _joinCompleter = null;
     _updateCompleter = null;
+    _pendingUpdateClientTime = null;
+    _updateSentAt = null;
   }
 
   static double _asDouble(Object? value) => switch (value) {

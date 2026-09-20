@@ -11,3 +11,75 @@ abstract interface class VideoTogetherPlayback {
   Future<void> seek(double seconds);
   Future<void> setPlaybackRate(double rate);
 }
+
+final class VideoTogetherPlaybackSnapshot {
+  const VideoTogetherPlaybackSnapshot({
+    required this.capturedAt,
+    required this.isReady,
+    required this.isPlaying,
+    required this.isBuffering,
+    required this.positionSeconds,
+    required this.durationSeconds,
+    required this.playbackRate,
+  });
+
+  factory VideoTogetherPlaybackSnapshot.capture(
+    VideoTogetherPlayback playback,
+    double capturedAt,
+  ) => VideoTogetherPlaybackSnapshot(
+    capturedAt: capturedAt,
+    isReady: playback.isReady,
+    isPlaying: playback.isPlaying,
+    isBuffering: playback.isBuffering,
+    positionSeconds: playback.positionSeconds,
+    durationSeconds: playback.durationSeconds,
+    playbackRate: playback.playbackRate,
+  );
+
+  final double capturedAt;
+  final bool isReady;
+  final bool isPlaying;
+  final bool isBuffering;
+  final double positionSeconds;
+  final double durationSeconds;
+  final double playbackRate;
+}
+
+abstract final class VideoTogetherLocalChangeDetector {
+  static bool hasUserDrivenChange(
+    VideoTogetherPlaybackSnapshot? previous,
+    VideoTogetherPlaybackSnapshot current, {
+    double seekThreshold = 0.75,
+  }) {
+    if (previous == null ||
+        !previous.isReady ||
+        !current.isReady ||
+        previous.isBuffering ||
+        current.isBuffering) {
+      return false;
+    }
+
+    if (previous.isPlaying != current.isPlaying) {
+      final endedNormally =
+          !current.isPlaying &&
+          current.durationSeconds > 0 &&
+          current.positionSeconds >= current.durationSeconds - 0.5;
+      if (!endedNormally) return true;
+    }
+
+    if ((previous.playbackRate - current.playbackRate).abs() > 0.01) {
+      return true;
+    }
+
+    final elapsed = (current.capturedAt - previous.capturedAt).clamp(
+      0,
+      double.infinity,
+    );
+    final expectedPosition =
+        previous.positionSeconds +
+        (previous.isPlaying && !previous.isBuffering
+            ? elapsed * previous.playbackRate
+            : 0);
+    return (current.positionSeconds - expectedPosition).abs() >= seekThreshold;
+  }
+}
