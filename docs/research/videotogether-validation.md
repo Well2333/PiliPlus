@@ -61,6 +61,13 @@ applicationId 为 `com.example.piliplus.dev.ci`，版本为 `2.1.4-41bf944ab+540
 上述固定证书指纹一致；APK SHA-256 为
 `e8bb0370b90aca66cca2848b43ee8f976bb2aa8d6318a745ba40c1caee0cc1c5`。
 
+前后台、网络波动和小窗恢复修复提交 `f8bbc017` 推送后，使用 Android-only、空 tag 参数触发
+GitHub Actions 运行 [`35524180366`](https://github.com/Well2333/PiliPlus/actions/runs/35524180366)：
+Android Release 编译在 6 分 59 秒内完成，Release 发布步骤明确跳过，其他平台任务未启用，三种 ABI
+产物全部上传。下载的 arm64 产物实测 applicationId 为 `com.example.piliplus.dev.ci`，版本为
+`2.1.4-f8bbc017e+5403`，签名 SHA-256 与上述固定证书指纹一致；APK SHA-256 为
+`360e9fd1d442f2c272d3e98627e2a4b4e5495a68d84d97d0ff95209a220b2ba8`。
+
 ## 2026-09-21 稳定性修复验证
 
 - 用户真机反馈前后台切换、网络波动和小窗可能断连或失去同步，本轮因此不再把 WebSocket ready 状态当作
