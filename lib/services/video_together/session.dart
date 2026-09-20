@@ -50,6 +50,7 @@ final class VideoTogetherSession {
   bool _resumeAfterLoading = false;
   bool _hasHeldControl = false;
   VideoTogetherRoom? _pendingFollowerRoom;
+  final _remotePlaybackReconciler = VideoTogetherRemotePlaybackReconciler();
 
   bool get inRoom => role.value != VideoTogetherRole.none;
   String get roomName => _roomName;
@@ -71,6 +72,7 @@ final class VideoTogetherSession {
 
     _playback = playback;
     _media = media;
+    _remotePlaybackReconciler.reset();
     if (openedExpectedRemote) {
       _expectedRemoteUrl = null;
       _pendingLocalMediaChange = false;
@@ -85,6 +87,7 @@ final class VideoTogetherSession {
     if (identical(_playback, playback)) {
       _playback = null;
       _lastPlaybackSnapshot = null;
+      _remotePlaybackReconciler.reset();
     }
   }
 
@@ -187,6 +190,7 @@ final class VideoTogetherSession {
     _hasHeldControl = false;
     _pendingFollowerRoom = null;
     _lastPlaybackSnapshot = null;
+    _remotePlaybackReconciler.reset();
     if (clearError) errorMessage.value = null;
   }
 
@@ -236,6 +240,9 @@ final class VideoTogetherSession {
         isControlling.value = true;
         _hasHeldControl = true;
       } else {
+        if (isControlling.value) {
+          _remotePlaybackReconciler.reset();
+        }
         role.value = VideoTogetherRole.member;
         isControlling.value = false;
         _resumeAfterLoading = false;
@@ -515,10 +522,22 @@ final class VideoTogetherSession {
           );
       final shouldPause = currentRoom.paused || pauseForMemberLoading;
 
-      if (shouldPause && playback.isPlaying) {
-        await playback.pause();
-      } else if (!shouldPause && !playback.isPlaying) {
-        await playback.play();
+      final command = _remotePlaybackReconciler.reconcile(
+        shouldPause: shouldPause,
+        isPlaying: playback.isPlaying,
+      );
+      try {
+        switch (command) {
+          case VideoTogetherPlaybackCommand.none:
+            break;
+          case VideoTogetherPlaybackCommand.play:
+            await playback.play();
+          case VideoTogetherPlaybackCommand.pause:
+            await playback.pause();
+        }
+      } catch (_) {
+        _remotePlaybackReconciler.reset();
+        rethrow;
       }
 
       final target = shouldPause

@@ -12,6 +12,31 @@ abstract interface class VideoTogetherPlayback {
   Future<void> setPlaybackRate(double rate);
 }
 
+enum VideoTogetherPlaybackCommand { none, play, pause }
+
+final class VideoTogetherRemotePlaybackReconciler {
+  bool? _lastShouldPause;
+
+  VideoTogetherPlaybackCommand reconcile({
+    required bool shouldPause,
+    required bool isPlaying,
+  }) {
+    final remoteStateChanged = _lastShouldPause != shouldPause;
+    _lastShouldPause = shouldPause;
+
+    if (shouldPause) {
+      return remoteStateChanged || isPlaying
+          ? VideoTogetherPlaybackCommand.pause
+          : VideoTogetherPlaybackCommand.none;
+    }
+    return remoteStateChanged || !isPlaying
+        ? VideoTogetherPlaybackCommand.play
+        : VideoTogetherPlaybackCommand.none;
+  }
+
+  void reset() => _lastShouldPause = null;
+}
+
 abstract final class VideoTogetherSyncPolicy {
   static const pausedCorrectionThreshold = 0.1;
 

@@ -1,5 +1,4 @@
 import 'package:PiliPlus/plugin/pl_player/controller.dart';
-import 'package:PiliPlus/plugin/pl_player/models/play_status.dart';
 import 'package:PiliPlus/services/video_together/models.dart';
 import 'package:PiliPlus/services/video_together/playback.dart';
 
@@ -12,7 +11,8 @@ final class PlPlayerVideoTogetherPlayback implements VideoTogetherPlayback {
   bool get isReady => controller.videoPlayerController != null;
 
   @override
-  bool get isPlaying => controller.playerStatus.isPlaying;
+  bool get isPlaying =>
+      controller.videoPlayerController?.state.playing ?? false;
 
   @override
   bool get isBuffering => controller.isBuffering.value;

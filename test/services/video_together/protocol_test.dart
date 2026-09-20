@@ -375,4 +375,60 @@ void main() {
       );
     });
   });
+
+  group('VideoTogetherRemotePlaybackReconciler', () {
+    test(
+      'starts an initially idle player even when cached status is stale',
+      () {
+        final reconciler = VideoTogetherRemotePlaybackReconciler();
+
+        expect(
+          reconciler.reconcile(shouldPause: false, isPlaying: true),
+          VideoTogetherPlaybackCommand.play,
+        );
+        expect(
+          reconciler.reconcile(shouldPause: false, isPlaying: true),
+          VideoTogetherPlaybackCommand.none,
+        );
+      },
+    );
+
+    test('resumes after a remote pause even when local status is stale', () {
+      final reconciler = VideoTogetherRemotePlaybackReconciler();
+
+      expect(
+        reconciler.reconcile(shouldPause: true, isPlaying: true),
+        VideoTogetherPlaybackCommand.pause,
+      );
+      expect(
+        reconciler.reconcile(shouldPause: false, isPlaying: true),
+        VideoTogetherPlaybackCommand.play,
+      );
+    });
+
+    test(
+      'retries when the actual player diverges from a stable room state',
+      () {
+        final reconciler = VideoTogetherRemotePlaybackReconciler();
+
+        expect(
+          reconciler.reconcile(shouldPause: false, isPlaying: false),
+          VideoTogetherPlaybackCommand.play,
+        );
+        expect(
+          reconciler.reconcile(shouldPause: false, isPlaying: false),
+          VideoTogetherPlaybackCommand.play,
+        );
+
+        expect(
+          reconciler.reconcile(shouldPause: true, isPlaying: true),
+          VideoTogetherPlaybackCommand.pause,
+        );
+        expect(
+          reconciler.reconcile(shouldPause: true, isPlaying: true),
+          VideoTogetherPlaybackCommand.pause,
+        );
+      },
+    );
+  });
 }
