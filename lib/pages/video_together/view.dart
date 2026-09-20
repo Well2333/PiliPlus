@@ -139,7 +139,7 @@ class _VideoTogetherPageState extends State<VideoTogetherPage> {
         const SizedBox(height: 24),
         const Text(
           '创建房间后可再打开任意 B 站视频；加入者会自动打开房间当前的投稿或番剧。'
-          '任一成员播放、暂停、拖动或切换视频时都会接管同步控制。'
+          '双向同步默认允许任一成员通过本地操作接管；与官方插件共用时可在设置中关闭，普通成员将只跟随。'
           '当前不支持 VideoTogether 的语音和 EasyShare 媒体中继。',
         ),
       ],

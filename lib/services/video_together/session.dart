@@ -46,7 +46,10 @@ final class VideoTogetherSession {
   bool _syncRunning = false;
   bool _applyingRemoteState = false;
   bool _pendingLocalMediaChange = false;
+  bool _memberLoadingStateChanged = false;
   bool _resumeAfterLoading = false;
+  bool _hasHeldControl = false;
+  VideoTogetherRoom? _pendingFollowerRoom;
 
   bool get inRoom => role.value != VideoTogetherRole.none;
   String get roomName => _roomName;
@@ -127,6 +130,7 @@ final class VideoTogetherSession {
     _controlUserId = _newUserId();
     role.value = targetRole;
     isControlling.value = targetRole == VideoTogetherRole.host;
+    _hasHeldControl = targetRole == VideoTogetherRole.host;
     _running = true;
     connectionState.value = VideoTogetherConnectionState.connecting;
 
@@ -178,7 +182,10 @@ final class VideoTogetherSession {
     _lastRoomUpdateAt = 0;
     _lastMemberUpdateAt = 0;
     _pendingLocalMediaChange = false;
+    _memberLoadingStateChanged = false;
     _resumeAfterLoading = false;
+    _hasHeldControl = false;
+    _pendingFollowerRoom = null;
     _lastPlaybackSnapshot = null;
     if (clearError) errorMessage.value = null;
   }
@@ -215,6 +222,7 @@ final class VideoTogetherSession {
   }
 
   void _onRoom(String method, VideoTogetherRoom value) {
+    final previousRoom = room.value;
     final isOwnUpdate =
         method == VideoTogetherProtocol.roomUpdate &&
         _pendingRoomUpdateTime != null &&
@@ -224,15 +232,23 @@ final class VideoTogetherSession {
 
     if (method == VideoTogetherProtocol.roomUpdate) {
       if (isOwnUpdate) {
+        role.value = VideoTogetherRole.host;
         isControlling.value = true;
+        _hasHeldControl = true;
       } else {
+        role.value = VideoTogetherRole.member;
         isControlling.value = false;
         _resumeAfterLoading = false;
       }
+    } else if (method == VideoTogetherProtocol.memberUpdate &&
+        isControlling.value &&
+        previousRoom?.waitForLoading != value.waitForLoading) {
+      _memberLoadingStateChanged = true;
+      unawaited(_tick());
     }
 
     if (_sessionReady && !isControlling.value) {
-      unawaited(_syncFollower(value));
+      _queueFollowerSync(value);
     }
   }
 
@@ -274,23 +290,42 @@ final class VideoTogetherSession {
             _lastPlaybackSnapshot,
             snapshot,
           );
-      final shouldTakeControl =
+      final wantsToTakeControl =
           _pendingLocalMediaChange || hasLocalPlaybackChange;
+      final canTakeControl = VideoTogetherSyncPolicy.canTakeControl(
+        hasHeldControl: _hasHeldControl,
+        bidirectionalSync: VideoTogetherPreferences.bidirectionalSync,
+      );
+      final shouldTakeControl = canTakeControl && wantsToTakeControl;
+
+      if (!canTakeControl && wantsToTakeControl) {
+        _pendingLocalMediaChange = false;
+      }
 
       if (shouldTakeControl && playback?.isReady == true && _media != null) {
         if (!isControlling.value) {
           _controlUserId = _newUserId();
+          role.value = VideoTogetherRole.host;
           isControlling.value = true;
+          _hasHeldControl = true;
         }
         _pendingLocalMediaChange = false;
         await _sendRoomUpdate();
       } else if (isControlling.value) {
-        if (now - _lastRoomUpdateAt >= 1.8) await _sendRoomUpdate();
+        if (_memberLoadingStateChanged || now - _lastRoomUpdateAt >= 1.8) {
+          _memberLoadingStateChanged = false;
+          await _sendRoomUpdate();
+        }
       } else if (room.value case final currentRoom?) {
-        await _syncFollower(currentRoom);
+        if (_syncRunning) {
+          _pendingFollowerRoom = currentRoom;
+        } else {
+          await _syncFollower(currentRoom);
+        }
       }
     } catch (error) {
       if (_isAuthorityConflict(error)) {
+        role.value = VideoTogetherRole.member;
         isControlling.value = false;
         errorMessage.value = null;
         await _reconnect(forceFollower: true);
@@ -311,6 +346,7 @@ final class VideoTogetherSession {
       await _client?.disconnect();
       await _connectClient();
       if (forceFollower || !isControlling.value) {
+        role.value = VideoTogetherRole.member;
         isControlling.value = false;
         await _joinAsFollower(forceMemberUpdate: true);
       } else {
@@ -318,6 +354,7 @@ final class VideoTogetherSession {
           await _sendRoomUpdate();
         } catch (error) {
           if (!_isAuthorityConflict(error)) rethrow;
+          role.value = VideoTogetherRole.member;
           isControlling.value = false;
           await _client?.disconnect();
           await _connectClient();
@@ -349,14 +386,16 @@ final class VideoTogetherSession {
     final playback = _playback;
     final currentRoom = room.value;
 
-    if (VideoTogetherPreferences.waitForLoading &&
-        currentRoom?.waitForLoading == true &&
+    final shouldWaitForLoading =
+        VideoTogetherPreferences.waitForLoading &&
+        currentRoom?.waitForLoading == true;
+    if (shouldWaitForLoading &&
         playback?.isReady == true &&
         playback!.isPlaying) {
       _resumeAfterLoading = true;
       await playback.pause();
     } else if (_resumeAfterLoading &&
-        currentRoom?.waitForLoading != true &&
+        !shouldWaitForLoading &&
         playback?.isReady == true) {
       _resumeAfterLoading = false;
       await playback!.play();
@@ -375,7 +414,12 @@ final class VideoTogetherSession {
             ? playback!.playbackRate
             : currentRoom?.playbackRate ?? 1,
         currentTime: isReady ? playback!.positionSeconds : fallbackPosition,
-        paused: !isReady || !playback!.isPlaying || playback.isBuffering,
+        paused: VideoTogetherSyncPolicy.advertisedPaused(
+          isReady: isReady,
+          isPlaying: isReady && playback!.isPlaying,
+          isBuffering: isReady && playback!.isBuffering,
+          pausedForMemberLoading: _resumeAfterLoading,
+        ),
         url: _media?.url ?? '',
         lastUpdateClientTime: updateTime,
         duration: isReady && playback!.durationSeconds > 0
@@ -435,7 +479,19 @@ final class VideoTogetherSession {
     } finally {
       _capturePlaybackSnapshot();
       _syncRunning = false;
+      if (_pendingFollowerRoom case final pendingRoom?) {
+        _pendingFollowerRoom = null;
+        _queueFollowerSync(pendingRoom);
+      }
     }
+  }
+
+  void _queueFollowerSync(VideoTogetherRoom currentRoom) {
+    if (_syncRunning) {
+      _pendingFollowerRoom = currentRoom;
+      return;
+    }
+    unawaited(_syncFollower(currentRoom));
   }
 
   Future<void> _applyRemoteState(
@@ -450,16 +506,30 @@ final class VideoTogetherSession {
         await playback.setPlaybackRate(currentRoom.playbackRate);
       }
 
-      final target = currentRoom.targetPosition(_client!.serverNow);
-      if ((playback.positionSeconds - target).abs() >=
-          VideoTogetherPreferences.syncThreshold) {
-        await playback.seek(target);
+      final pauseForMemberLoading =
+          VideoTogetherSyncPolicy.shouldPauseForMemberLoading(
+            waitForLoadingEnabled: VideoTogetherPreferences.waitForLoading,
+            roomWaitsForLoading: currentRoom.waitForLoading,
+            roomPaused: currentRoom.paused,
+            localBuffering: playback.isBuffering,
+          );
+      final shouldPause = currentRoom.paused || pauseForMemberLoading;
+
+      if (shouldPause && playback.isPlaying) {
+        await playback.pause();
+      } else if (!shouldPause && !playback.isPlaying) {
+        await playback.play();
       }
 
-      if (currentRoom.paused && playback.isPlaying) {
-        await playback.pause();
-      } else if (!currentRoom.paused && !playback.isPlaying) {
-        await playback.play();
+      final target = shouldPause
+          ? currentRoom.currentTime
+          : currentRoom.targetPosition(_client!.serverNow);
+      final threshold = VideoTogetherSyncPolicy.correctionThreshold(
+        roomPaused: shouldPause,
+        playingThreshold: VideoTogetherPreferences.syncThreshold,
+      );
+      if ((playback.positionSeconds - target).abs() >= threshold) {
+        await playback.seek(target);
       }
     } finally {
       _applyingRemoteState = false;

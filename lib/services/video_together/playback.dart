@@ -12,6 +12,38 @@ abstract interface class VideoTogetherPlayback {
   Future<void> setPlaybackRate(double rate);
 }
 
+abstract final class VideoTogetherSyncPolicy {
+  static const pausedCorrectionThreshold = 0.1;
+
+  static bool canTakeControl({
+    required bool hasHeldControl,
+    required bool bidirectionalSync,
+  }) => bidirectionalSync || hasHeldControl;
+
+  static double correctionThreshold({
+    required bool roomPaused,
+    required double playingThreshold,
+  }) => roomPaused ? pausedCorrectionThreshold : playingThreshold;
+
+  static bool shouldPauseForMemberLoading({
+    required bool waitForLoadingEnabled,
+    required bool roomWaitsForLoading,
+    required bool roomPaused,
+    required bool localBuffering,
+  }) =>
+      waitForLoadingEnabled &&
+      roomWaitsForLoading &&
+      !roomPaused &&
+      !localBuffering;
+
+  static bool advertisedPaused({
+    required bool isReady,
+    required bool isPlaying,
+    required bool isBuffering,
+    required bool pausedForMemberLoading,
+  }) => !isReady || (!pausedForMemberLoading && (!isPlaying || isBuffering));
+}
+
 final class VideoTogetherPlaybackSnapshot {
   const VideoTogetherPlaybackSnapshot({
     required this.capturedAt,

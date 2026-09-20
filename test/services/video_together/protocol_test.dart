@@ -1,5 +1,6 @@
 import 'package:PiliPlus/services/video_together/models.dart';
 import 'package:PiliPlus/services/video_together/playback.dart';
+import 'package:PiliPlus/services/video_together/preferences.dart';
 import 'package:PiliPlus/services/video_together/protocol.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -266,6 +267,111 @@ void main() {
           resumed,
         ),
         isFalse,
+      );
+    });
+  });
+
+  group('VideoTogetherSyncPolicy', () {
+    test('defaults the playing correction threshold to half a second', () {
+      expect(VideoTogetherPreferences.defaultSyncThreshold, 0.5);
+    });
+
+    test('compatibility mode keeps joined members read-only', () {
+      expect(
+        VideoTogetherSyncPolicy.canTakeControl(
+          hasHeldControl: false,
+          bidirectionalSync: false,
+        ),
+        isFalse,
+      );
+      expect(
+        VideoTogetherSyncPolicy.canTakeControl(
+          hasHeldControl: true,
+          bidirectionalSync: false,
+        ),
+        isTrue,
+      );
+      expect(
+        VideoTogetherSyncPolicy.canTakeControl(
+          hasHeldControl: false,
+          bidirectionalSync: true,
+        ),
+        isTrue,
+      );
+    });
+
+    test('uses precise correction while the room is paused', () {
+      expect(
+        VideoTogetherSyncPolicy.correctionThreshold(
+          roomPaused: true,
+          playingThreshold: 0.5,
+        ),
+        0.1,
+      );
+      expect(
+        VideoTogetherSyncPolicy.correctionThreshold(
+          roomPaused: false,
+          playingThreshold: 0.5,
+        ),
+        0.5,
+      );
+    });
+
+    test('uses precise correction during a temporary loading pause', () {
+      final shouldPause = VideoTogetherSyncPolicy.shouldPauseForMemberLoading(
+        waitForLoadingEnabled: true,
+        roomWaitsForLoading: true,
+        roomPaused: false,
+        localBuffering: false,
+      );
+      expect(
+        VideoTogetherSyncPolicy.correctionThreshold(
+          roomPaused: shouldPause,
+          playingThreshold: 0.5,
+        ),
+        0.1,
+      );
+    });
+
+    test('only non-buffering members pause while waiting for loading', () {
+      expect(
+        VideoTogetherSyncPolicy.shouldPauseForMemberLoading(
+          waitForLoadingEnabled: true,
+          roomWaitsForLoading: true,
+          roomPaused: false,
+          localBuffering: false,
+        ),
+        isTrue,
+      );
+      expect(
+        VideoTogetherSyncPolicy.shouldPauseForMemberLoading(
+          waitForLoadingEnabled: true,
+          roomWaitsForLoading: true,
+          roomPaused: false,
+          localBuffering: true,
+        ),
+        isFalse,
+      );
+    });
+
+    test('loading pause does not become a user pause in room state', () {
+      expect(
+        VideoTogetherSyncPolicy.advertisedPaused(
+          isReady: true,
+          isPlaying: false,
+          isBuffering: false,
+          pausedForMemberLoading: true,
+        ),
+        isFalse,
+      );
+      expect(
+        VideoTogetherSyncPolicy.advertisedPaused(
+          isReady: true,
+          isPlaying: false,
+          isBuffering: false,
+          pausedForMemberLoading: false,
+        ),
+        isTrue,
       );
     });
   });

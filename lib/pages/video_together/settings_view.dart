@@ -22,6 +22,7 @@ class _VideoTogetherSettingsPageState extends State<VideoTogetherSettingsPage> {
   late final TextEditingController _nicknameController;
   late bool _autoOpenVideo;
   late bool _syncPlaybackRate;
+  late bool _bidirectionalSync;
   late bool _waitForLoading;
   late bool _passwordProtected;
   late bool _hidePlayerMenuEntry;
@@ -38,6 +39,7 @@ class _VideoTogetherSettingsPageState extends State<VideoTogetherSettingsPage> {
     );
     _autoOpenVideo = VideoTogetherPreferences.autoOpenVideo;
     _syncPlaybackRate = VideoTogetherPreferences.syncPlaybackRate;
+    _bidirectionalSync = VideoTogetherPreferences.bidirectionalSync;
     _waitForLoading = VideoTogetherPreferences.waitForLoading;
     _passwordProtected = VideoTogetherPreferences.passwordProtected;
     _hidePlayerMenuEntry = VideoTogetherPreferences.hidePlayerMenuEntry;
@@ -118,6 +120,15 @@ class _VideoTogetherSettingsPageState extends State<VideoTogetherSettingsPage> {
         ),
         SwitchListTile(
           contentPadding: EdgeInsets.zero,
+          title: const Text('双向同步控制'),
+          subtitle: const Text(
+            '关闭后启用官方兼容模式：普通成员只能跟随；房间创建者被接管后仍可重新控制',
+          ),
+          value: _bidirectionalSync,
+          onChanged: (value) => setState(() => _bidirectionalSync = value),
+        ),
+        SwitchListTile(
+          contentPadding: EdgeInsets.zero,
           title: const Text('等待成员缓冲'),
           subtitle: const Text('服务端报告其他成员正在缓冲时，控制端暂时暂停'),
           value: _waitForLoading,
@@ -131,7 +142,7 @@ class _VideoTogetherSettingsPageState extends State<VideoTogetherSettingsPage> {
           onChanged: (value) => setState(() => _passwordProtected = value),
         ),
         const SizedBox(height: 8),
-        Text('进度校正阈值：${_syncThreshold.toStringAsFixed(1)} 秒'),
+        Text('播放中进度校正阈值：${_syncThreshold.toStringAsFixed(1)} 秒'),
         Slider(
           value: _syncThreshold,
           min: 0.1,
@@ -197,6 +208,7 @@ class _VideoTogetherSettingsPageState extends State<VideoTogetherSettingsPage> {
             : nickname,
         VideoTogetherPreferences.autoOpenVideoKey: _autoOpenVideo,
         VideoTogetherPreferences.syncPlaybackRateKey: _syncPlaybackRate,
+        VideoTogetherPreferences.bidirectionalSyncKey: _bidirectionalSync,
         VideoTogetherPreferences.waitForLoadingKey: _waitForLoading,
         VideoTogetherPreferences.passwordProtectedKey: _passwordProtected,
         VideoTogetherPreferences.syncThresholdKey: _syncThreshold,
