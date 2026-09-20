@@ -2,6 +2,7 @@ import 'package:PiliPlus/services/video_together/models.dart';
 import 'package:PiliPlus/services/video_together/playback.dart';
 import 'package:PiliPlus/services/video_together/preferences.dart';
 import 'package:PiliPlus/services/video_together/protocol.dart';
+import 'package:PiliPlus/services/video_together/recovery.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
@@ -432,6 +433,70 @@ void main() {
     );
   });
 
+  group('VideoTogetherReconnectBackoff', () {
+    test('backs off repeated failures and allows forced recovery', () {
+      final backoff = VideoTogetherReconnectBackoff();
+
+      expect(backoff.canAttempt(10), isTrue);
+      expect(backoff.registerFailure(10), const Duration(seconds: 1));
+      expect(backoff.canAttempt(10.9), isFalse);
+      expect(backoff.canAttempt(10.9, force: true), isTrue);
+      expect(backoff.canAttempt(11), isTrue);
+
+      expect(backoff.registerFailure(11), const Duration(seconds: 2));
+      expect(backoff.failureCount, 2);
+      expect(backoff.nextAttemptAt, 13);
+
+      backoff.reset();
+      expect(backoff.failureCount, 0);
+      expect(backoff.canAttempt(0), isTrue);
+    });
+  });
+
+  group('VideoTogetherConnectionWatchdog', () {
+    test('expires a connected socket without server messages', () {
+      expect(
+        VideoTogetherConnectionWatchdog.isStale(
+          lastMessageAt: 100,
+          now: 107.9,
+        ),
+        isFalse,
+      );
+      expect(
+        VideoTogetherConnectionWatchdog.isStale(
+          lastMessageAt: 100,
+          now: 108,
+        ),
+        isTrue,
+      );
+    });
+
+    test('does not expire before the first server message', () {
+      expect(
+        VideoTogetherConnectionWatchdog.isStale(
+          lastMessageAt: 0,
+          now: 100,
+        ),
+        isFalse,
+      );
+    });
+  });
+  group('VideoTogetherLifecyclePolicy', () {
+    test('suspends ordinary background playback but keeps PiP active', () {
+      expect(
+        VideoTogetherLifecyclePolicy.shouldSuspend(
+          playbackKeepsPlayingInBackground: false,
+        ),
+        isTrue,
+      );
+      expect(
+        VideoTogetherLifecyclePolicy.shouldSuspend(
+          playbackKeepsPlayingInBackground: true,
+        ),
+        isFalse,
+      );
+    });
+  });
   group('VideoTogetherRemotePlaybackSynchronizer', () {
     VideoTogetherRoom room({required bool paused}) => VideoTogetherRoom(
       name: 'room',
@@ -453,6 +518,7 @@ void main() {
       VideoTogetherRemotePlaybackSynchronizer synchronizer,
       _FakeVideoTogetherPlayback playback, {
       required bool paused,
+      bool restartPlayback = false,
     }) => synchronizer.apply(
       playback: playback,
       room: room(paused: paused),
@@ -460,6 +526,7 @@ void main() {
       syncPlaybackRate: true,
       waitForLoading: true,
       playingThreshold: 0.5,
+      restartPlayback: restartPlayback,
     );
 
     test(
@@ -491,6 +558,44 @@ void main() {
       expect(playback.playCount, 1);
     });
 
+    test('restarts an existing stream after connection recovery', () async {
+      final synchronizer = VideoTogetherRemotePlaybackSynchronizer();
+      final playback = _FakeVideoTogetherPlayback()
+        ..isReady = true
+        ..isPlaying = true
+        ..positionSeconds = 12;
+
+      expect(
+        await apply(
+          synchronizer,
+          playback,
+          paused: false,
+          restartPlayback: true,
+        ),
+        isTrue,
+      );
+      expect(playback.recoverCount, 1);
+      expect(playback.playCount, 1);
+    });
+
+    test('does not restart a paused room stream', () async {
+      final synchronizer = VideoTogetherRemotePlaybackSynchronizer();
+      final playback = _FakeVideoTogetherPlayback()
+        ..isReady = true
+        ..isPlaying = true;
+
+      expect(
+        await apply(
+          synchronizer,
+          playback,
+          paused: true,
+          restartPlayback: true,
+        ),
+        isTrue,
+      );
+      expect(playback.recoverCount, 0);
+      expect(playback.pauseCount, 1);
+    });
     test('does not initialize the stream while the room is paused', () async {
       final synchronizer = VideoTogetherRemotePlaybackSynchronizer();
       final playback = _FakeVideoTogetherPlayback();
@@ -510,6 +615,7 @@ final class _FakeVideoTogetherPlayback implements VideoTogetherPlayback {
   int prepareCount = 0;
   int playCount = 0;
   int pauseCount = 0;
+  int recoverCount = 0;
 
   @override
   bool isReady = false;
@@ -519,6 +625,8 @@ final class _FakeVideoTogetherPlayback implements VideoTogetherPlayback {
 
   @override
   bool isBuffering = false;
+  @override
+  bool get keepsPlayingInBackground => false;
 
   @override
   double positionSeconds = 0;
@@ -533,6 +641,11 @@ final class _FakeVideoTogetherPlayback implements VideoTogetherPlayback {
   Future<void> prepare() async {
     prepareCount += 1;
     if (prepareMakesReady) isReady = true;
+  }
+
+  @override
+  Future<void> recover() async {
+    recoverCount += 1;
   }
 
   @override

@@ -37,6 +37,8 @@ final class VideoTogetherClient {
   bool _manualDisconnect = false;
   bool _connecting = false;
   bool _connected = false;
+  bool _disconnectNotified = false;
+  double _lastMessageAt = 0;
   double _clockOffset = 0;
   double _bestRoundTrip = double.infinity;
   double? _joinSentAt;
@@ -45,6 +47,7 @@ final class VideoTogetherClient {
 
   bool get isConnected => _connected;
   bool get isConnecting => _connecting;
+  double get lastMessageAt => _lastMessageAt;
   double get serverNow => _localNow + _clockOffset;
   double get _localNow => DateTime.now().microsecondsSinceEpoch / 1000000;
 
@@ -52,6 +55,7 @@ final class VideoTogetherClient {
     if (_connected || _connecting) return;
     _connecting = true;
     _manualDisconnect = false;
+    _disconnectNotified = false;
     try {
       await _subscription?.cancel();
       final channel = WebSocketChannel.connect(
@@ -66,6 +70,7 @@ final class VideoTogetherClient {
       );
       await channel.ready.timeout(const Duration(seconds: 10));
       _connected = true;
+      _lastMessageAt = _localNow;
     } catch (error) {
       _connected = false;
       await _subscription?.cancel();
@@ -194,6 +199,7 @@ final class VideoTogetherClient {
   }
 
   void _onData(dynamic raw) {
+    _lastMessageAt = _localNow;
     final text = raw is String ? raw : utf8.decode(raw as List<int>);
     for (final line in const LineSplitter().convert(text)) {
       if (line.trim().isEmpty) continue;
@@ -305,12 +311,19 @@ final class VideoTogetherClient {
     _connected = false;
     onError('WebSocket 连接错误：$error');
     _completePending(error, stackTrace);
+    _notifyDisconnected();
   }
 
   void _onDone() {
     _connected = false;
     _completePending(StateError('服务器连接已断开'));
-    if (!_manualDisconnect) onDisconnected();
+    _notifyDisconnected();
+  }
+
+  void _notifyDisconnected() {
+    if (_manualDisconnect || _disconnectNotified) return;
+    _disconnectNotified = true;
+    onDisconnected();
   }
 
   void _completePending(Object error, [StackTrace? stackTrace]) {

@@ -6,11 +6,13 @@ abstract interface class VideoTogetherPlayback {
   bool get isReady;
   bool get isPlaying;
   bool get isBuffering;
+  bool get keepsPlayingInBackground;
   double get positionSeconds;
   double get durationSeconds;
   double get playbackRate;
 
   Future<void> prepare();
+  Future<void> recover();
   Future<void> play();
   Future<void> pause();
   Future<void> seek(double seconds);
@@ -52,12 +54,18 @@ final class VideoTogetherRemotePlaybackSynchronizer {
     required bool syncPlaybackRate,
     required bool waitForLoading,
     required double playingThreshold,
+    bool restartPlayback = false,
   }) async {
     try {
+      final wasReady = playback.isReady;
       if (!playback.isReady) {
         if (room.paused) return false;
         await playback.prepare();
         if (!playback.isReady) return false;
+      }
+      if (restartPlayback && wasReady && !room.paused) {
+        await playback.recover();
+        _reconciler.reset();
       }
 
       if (syncPlaybackRate &&

@@ -20,6 +20,8 @@ final class PlPlayerVideoTogetherPlayback implements VideoTogetherPlayback {
 
   @override
   bool get isBuffering => controller.isBuffering.value;
+  @override
+  bool get keepsPlayingInBackground => controller.keepsPlayingInBackground;
 
   @override
   double get positionSeconds => controller.positionInMilliseconds / 1000;
@@ -34,6 +36,12 @@ final class PlPlayerVideoTogetherPlayback implements VideoTogetherPlayback {
   Future<void> prepare() async {
     if (isReady) return;
     final future = preparePlayback?.call();
+    if (future != null) await future;
+  }
+
+  @override
+  Future<void> recover() async {
+    final future = controller.refreshPlayer();
     if (future != null) await future;
   }
 

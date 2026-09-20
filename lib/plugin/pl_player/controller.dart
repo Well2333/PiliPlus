@@ -198,6 +198,8 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
   bool get isPipMode =>
       (Platform.isAndroid && AndroidHelper.isPipMode) ||
       (PlatformUtils.isDesktop && isDesktopPip);
+  bool get keepsPlayingInBackground =>
+      continuePlayInBackground.value || isPipMode || isAutoEnterPip;
   late bool isDesktopPip = false;
   late Rect _lastWindowBounds;
 
