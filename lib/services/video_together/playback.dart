@@ -55,22 +55,42 @@ final class VideoTogetherRemotePlaybackSynchronizer {
     required bool waitForLoading,
     required double playingThreshold,
     bool restartPlayback = false,
+    bool Function()? isCurrent,
+    void Function()? onRemoteCommand,
   }) async {
+    bool current() => isCurrent?.call() ?? true;
+
+    Future<bool> applyCommand(Future<void> Function() action) async {
+      if (!current()) return false;
+      onRemoteCommand?.call();
+      try {
+        await action();
+      } finally {
+        onRemoteCommand?.call();
+      }
+      return current();
+    }
+
     try {
+      if (!current()) return false;
       final wasReady = playback.isReady;
       if (!playback.isReady) {
         if (room.paused) return false;
-        await playback.prepare();
+        if (!await applyCommand(playback.prepare)) return false;
         if (!playback.isReady) return false;
       }
       if (restartPlayback && wasReady && !room.paused) {
-        await playback.recover();
+        if (!await applyCommand(playback.recover)) return false;
         _reconciler.reset();
       }
 
       if (syncPlaybackRate &&
           (playback.playbackRate - room.playbackRate).abs() > 0.01) {
-        await playback.setPlaybackRate(room.playbackRate);
+        if (!await applyCommand(
+          () => playback.setPlaybackRate(room.playbackRate),
+        )) {
+          return false;
+        }
       }
 
       final pauseForMemberLoading =
@@ -89,11 +109,12 @@ final class VideoTogetherRemotePlaybackSynchronizer {
         case VideoTogetherPlaybackCommand.none:
           break;
         case VideoTogetherPlaybackCommand.play:
-          await playback.play();
+          if (!await applyCommand(playback.play)) return false;
         case VideoTogetherPlaybackCommand.pause:
-          await playback.pause();
+          if (!await applyCommand(playback.pause)) return false;
       }
 
+      if (!current()) return false;
       final target = shouldPause
           ? room.currentTime
           : room.targetPosition(getServerNow());
@@ -102,7 +123,9 @@ final class VideoTogetherRemotePlaybackSynchronizer {
         playingThreshold: playingThreshold,
       );
       if ((playback.positionSeconds - target).abs() >= threshold) {
-        await playback.seek(target);
+        if (!await applyCommand(() => playback.seek(target))) {
+          return false;
+        }
       }
       return true;
     } catch (_) {

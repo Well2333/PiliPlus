@@ -55,6 +55,7 @@ import 'package:PiliPlus/plugin/pl_player/view/view.dart';
 import 'package:PiliPlus/services/service_locator.dart';
 import 'package:PiliPlus/services/shutdown_timer_service.dart'
     show shutdownTimerService;
+import 'package:PiliPlus/services/video_together/session.dart';
 import 'package:PiliPlus/utils/accounts.dart';
 import 'package:PiliPlus/utils/android/bindings.g.dart';
 import 'package:PiliPlus/utils/extension/scroll_controller_ext.dart';
@@ -330,7 +331,8 @@ class _VideoDetailPageVState extends State<VideoDetailPageV>
     plPlayerController
       ..addStatusLister(playerListener)
       ..addPositionListener(positionListener);
-    if (plPlayerController.videoPlayerController != null) {
+    if (plPlayerController.videoPlayerController != null &&
+        videoDetailController.videoTogetherMediaReady) {
       if (autoplay && plPlayerController.autoEnterFullScreen) {
         plPlayerController.triggerFullScreen();
       }
@@ -402,6 +404,9 @@ class _VideoDetailPageVState extends State<VideoDetailPageV>
       ..brightness = plPlayerController?.brightness.value;
     if (plPlayerController != null) {
       videoDetailController.makeHeartBeat();
+      if (VideoTogetherSession.instance.inRoom) {
+        VideoTogetherSession.instance.suppressLocalChanges();
+      }
       plPlayerController!
         ..removeStatusLister(playerListener)
         ..removePositionListener(positionListener)
@@ -453,14 +458,25 @@ class _VideoDetailPageVState extends State<VideoDetailPageV>
     plPlayerController
       ?..addStatusLister(playerListener)
       ..addPositionListener(positionListener);
+    final videoTogetherSession = VideoTogetherSession.instance;
+    final inVideoTogetherRoom = videoTogetherSession.inRoom;
+    final roomWantsPlayback =
+        inVideoTogetherRoom && videoTogetherSession.room.value?.paused == false;
+    if (inVideoTogetherRoom) {
+      videoTogetherSession.suppressLocalChanges(const Duration(seconds: 5));
+    }
     if (videoDetailController.autoPlay) {
       videoDetailController.playerInit(
-        autoplay: videoDetailController.playerStatus?.isPlaying ?? false,
+        autoplay: inVideoTogetherRoom
+            ? roomWantsPlayback
+            : videoDetailController.playerStatus?.isPlaying ?? false,
       );
     } else if (videoDetailController.plPlayerController.preInitPlayer &&
         !videoDetailController.isQuerying &&
         videoDetailController.videoUrl != null) {
-      videoDetailController.playerInit();
+      videoDetailController.playerInit(
+        autoplay: inVideoTogetherRoom ? roomWantsPlayback : null,
+      );
     }
   }
 

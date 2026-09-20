@@ -30,6 +30,7 @@ final class VideoTogetherSession with WidgetsBindingObserver {
   VideoTogetherClient? _client;
   VideoTogetherPlayback? _playback;
   VideoTogetherMedia? _media;
+  VideoTogetherMedia? _lastMedia;
   VideoTogetherOpenVideo? _openVideo;
   VideoTogetherPlaybackSnapshot? _lastPlaybackSnapshot;
   Timer? _timer;
@@ -40,40 +41,80 @@ final class VideoTogetherSession with WidgetsBindingObserver {
   String _server = '';
   String _memberUserId = '';
   String _controlUserId = '';
-  String? _lastNavigationUrl;
   String? _expectedRemoteUrl;
+  double _expectedRemoteAt = 0;
   double? _pendingRoomUpdateTime;
   double _lastRoomUpdateAt = 0;
   double _lastMemberUpdateAt = 0;
+  double _ignoreLocalChangesUntil = 0;
+  int _startAttempt = 0;
+  int _generation = 0;
+  int _roomRevision = 0;
+  int? _tickGeneration;
+  int? _reconnectGeneration;
+  int? _syncGeneration;
+  int? _applyingGeneration;
   bool _running = false;
   bool _sessionReady = false;
-  bool _tickRunning = false;
-  bool _reconnectRunning = false;
-  bool _syncRunning = false;
-  bool _applyingRemoteState = false;
   bool _pendingLocalMediaChange = false;
   bool _memberLoadingStateChanged = false;
   bool _resumeAfterLoading = false;
   bool _hasHeldControl = false;
   bool _runtimeObserversStarted = false;
+  bool _appInBackground = false;
   bool _appSuspended = false;
+  bool _lifecycleInactive = false;
+  bool _networkAvailable = true;
   String? _networkSignature;
-  VideoTogetherRoom? _pendingFollowerRoom;
+  _FollowerSyncRequest? _pendingFollowerSync;
+  _FollowerSyncRequest? _activeFollowerSync;
+  Completer<void>? _syncCompleter;
+  Future<void> _remoteApplyTail = Future<void>.value();
+  final _recentRoomUpdateTimes = <double>[];
+  int _remoteCommandEpoch = 0;
   final _remotePlaybackSynchronizer = VideoTogetherRemotePlaybackSynchronizer();
   final _reconnectBackoff = VideoTogetherReconnectBackoff();
+  final _reconnectQueue = VideoTogetherReconnectQueue();
+  final _uptime = Stopwatch()..start();
 
   bool get inRoom => role.value != VideoTogetherRole.none;
+  bool get _tickRunning => _tickGeneration == _generation;
+  bool get _reconnectRunning => _reconnectGeneration == _generation;
+  bool get _syncRunning => _syncGeneration == _generation;
+  bool get _applyingRemoteState => _applyingGeneration == _generation;
   String get roomName => _roomName;
   String get server => _server;
   String get currentPassword => _password;
-  VideoTogetherMedia? get media => _media;
+  VideoTogetherMedia? get media => _media ?? _lastMedia;
+
+  double get _monotonicNow => _uptime.elapsedMicroseconds / 1000000;
+
+  bool _isCurrent(int generation) => _running && generation == _generation;
+
+  bool _canRun(int generation) =>
+      _isCurrent(generation) &&
+      !_appSuspended &&
+      !_lifecycleInactive &&
+      _networkAvailable;
+
+  bool _ownsClient(int generation, VideoTogetherClient client) =>
+      _isCurrent(generation) && identical(_client, client);
+
+  void suppressLocalChanges([
+    Duration duration = const Duration(milliseconds: 1200),
+  ]) {
+    final until = _monotonicNow + duration.inMilliseconds / 1000;
+    if (until > _ignoreLocalChangesUntil) {
+      _ignoreLocalChangesUntil = until;
+    }
+  }
 
   void configureNavigation(VideoTogetherOpenVideo callback) {
     _openVideo = callback;
   }
 
   void bindPlayback(VideoTogetherPlayback playback, VideoTogetherMedia media) {
-    final previousMedia = _media;
+    final previousMedia = _media ?? _lastMedia;
     final expectedRemote = _expectedRemoteUrl;
     final openedExpectedRemote =
         expectedRemote != null && _isSameMedia(media.url, expectedRemote);
@@ -82,20 +123,24 @@ final class VideoTogetherSession with WidgetsBindingObserver {
 
     _playback = playback;
     _media = media;
+    _lastMedia = media;
     _remotePlaybackSynchronizer.reset();
     if (openedExpectedRemote) {
       _expectedRemoteUrl = null;
+      _expectedRemoteAt = 0;
       _pendingLocalMediaChange = false;
+      suppressLocalChanges();
     } else if (_running && _sessionReady && mediaChanged) {
       _pendingLocalMediaChange = true;
     }
     _capturePlaybackSnapshot();
-    if (_running) unawaited(_tick());
+    if (_running) unawaited(_tick(_generation));
   }
 
   void unbindPlayback(VideoTogetherPlayback playback) {
     if (identical(_playback, playback)) {
       _playback = null;
+      _media = null;
       _lastPlaybackSnapshot = null;
       _remotePlaybackSynchronizer.reset();
     }
@@ -133,9 +178,11 @@ final class VideoTogetherSession with WidgetsBindingObserver {
       throw const FormatException('请输入房间名');
     }
 
+    final startAttempt = ++_startAttempt;
     isBusy.value = true;
     errorMessage.value = null;
-    await leave(clearError: false);
+    await _leave(clearError: false);
+    if (startAttempt != _startAttempt) return;
     _roomName = normalizedRoomName;
     _password = password;
     _server = VideoTogetherPreferences.server;
@@ -145,41 +192,69 @@ final class VideoTogetherSession with WidgetsBindingObserver {
     isControlling.value = targetRole == VideoTogetherRole.host;
     _hasHeldControl = targetRole == VideoTogetherRole.host;
     _running = true;
+    final generation = _generation;
     connectionState.value = VideoTogetherConnectionState.connecting;
 
     try {
-      await _connectClient();
+      await _connectClient(generation);
+      if (!_canRun(generation)) return;
       if (targetRole == VideoTogetherRole.host) {
-        await _sendRoomUpdate();
+        await _sendRoomUpdate(generation);
       } else {
-        await _joinAsFollower(forceMemberUpdate: true);
+        await _joinAsFollower(generation, forceMemberUpdate: true);
       }
+      if (!_canRun(generation)) return;
       _sessionReady = true;
       connectionState.value = VideoTogetherConnectionState.connected;
       _capturePlaybackSnapshot();
       _timer = Timer.periodic(
         const Duration(milliseconds: 400),
-        (_) => _tick(),
+        (_) => _tick(generation),
       );
       _startRuntimeObservers();
     } catch (error) {
+      if (!_isCurrent(generation)) return;
       errorMessage.value = _friendlyError(error);
       connectionState.value = VideoTogetherConnectionState.error;
-      await leave(clearError: false);
+      isBusy.value = false;
+      await _leave(clearError: false);
       rethrow;
     } finally {
-      isBusy.value = false;
+      if (startAttempt == _startAttempt && generation == _generation) {
+        isBusy.value = false;
+      }
     }
   }
 
   Future<void> leave({bool clearError = true}) async {
+    _startAttempt += 1;
+    isBusy.value = false;
+    await _leave(clearError: clearError);
+  }
+
+  Future<void> _leave({required bool clearError}) async {
     _running = false;
     _sessionReady = false;
+    _generation += 1;
+    _roomRevision += 1;
     _timer?.cancel();
     _timer = null;
-    await _stopRuntimeObservers();
+    _tickGeneration = null;
+    _reconnectGeneration = null;
+    _syncGeneration = null;
+    _applyingGeneration = null;
+    _remoteCommandEpoch += 1;
+    _reconnectQueue.clear();
+    _pendingFollowerSync = null;
+    _activeFollowerSync = null;
+    final syncCompleter = _syncCompleter;
+    _syncCompleter = null;
+    if (syncCompleter != null && !syncCompleter.isCompleted) {
+      syncCompleter.complete();
+    }
     final client = _client;
     _client = null;
+    await _stopRuntimeObservers();
     await client?.disconnect();
     role.value = VideoTogetherRole.none;
     isControlling.value = false;
@@ -191,18 +266,22 @@ final class VideoTogetherSession with WidgetsBindingObserver {
     _server = '';
     _memberUserId = '';
     _controlUserId = '';
-    _lastNavigationUrl = null;
     _expectedRemoteUrl = null;
+    _expectedRemoteAt = 0;
     _pendingRoomUpdateTime = null;
+    _recentRoomUpdateTimes.clear();
     _lastRoomUpdateAt = 0;
     _lastMemberUpdateAt = 0;
+    _ignoreLocalChangesUntil = 0;
     _pendingLocalMediaChange = false;
     _memberLoadingStateChanged = false;
     _resumeAfterLoading = false;
     _hasHeldControl = false;
+    _appInBackground = false;
     _appSuspended = false;
+    _lifecycleInactive = false;
+    _networkAvailable = true;
     _networkSignature = null;
-    _pendingFollowerRoom = null;
     _lastPlaybackSnapshot = null;
     _remotePlaybackSynchronizer.reset();
     if (clearError) errorMessage.value = null;
@@ -228,24 +307,48 @@ final class VideoTogetherSession with WidgetsBindingObserver {
     await _navigateTo(url, force: true);
   }
 
-  Future<void> _connectClient() async {
-    final client = VideoTogetherClient(
+  Future<VideoTogetherClient> _connectClient(int generation) async {
+    late final VideoTogetherClient client;
+    client = VideoTogetherClient(
       server: _server,
-      onRoom: _onRoom,
-      onError: (message) => errorMessage.value = message,
-      onTextMessage: _onTextMessage,
-      onDisconnected: _onDisconnected,
+      onRoom: (method, value) {
+        if (_ownsClient(generation, client)) {
+          _onRoom(method, value);
+        }
+      },
+      onError: (message) {
+        if (_ownsClient(generation, client)) {
+          errorMessage.value = message;
+        }
+      },
+      onTextMessage: (sender, text) {
+        if (_ownsClient(generation, client)) {
+          _onTextMessage(sender, text);
+        }
+      },
+      onDisconnected: () {
+        if (_ownsClient(generation, client)) {
+          _onDisconnected(generation);
+        }
+      },
     );
-    _client = client;
     await client.connect();
+    if (!_canRun(generation)) {
+      await client.disconnect();
+      throw const _VideoTogetherSessionCancelled();
+    }
+    _client = client;
+    return client;
   }
 
   void _onRoom(String method, VideoTogetherRoom value) {
     final previousRoom = room.value;
     final isOwnUpdate =
         method == VideoTogetherProtocol.roomUpdate &&
-        _pendingRoomUpdateTime != null &&
-        (value.lastUpdateClientTime - _pendingRoomUpdateTime!).abs() < 0.0001;
+        _recentRoomUpdateTimes.any(
+          (time) => (value.lastUpdateClientTime - time).abs() < 0.0001,
+        );
+    _roomRevision += 1;
     room.value = value;
     errorMessage.value = null;
 
@@ -266,11 +369,15 @@ final class VideoTogetherSession with WidgetsBindingObserver {
         isControlling.value &&
         previousRoom?.waitForLoading != value.waitForLoading) {
       _memberLoadingStateChanged = true;
-      unawaited(_tick());
+      unawaited(_tick(_generation));
     }
 
-    if (_sessionReady && !_reconnectRunning && !isControlling.value) {
-      _queueFollowerSync(value);
+    if (_sessionReady &&
+        !_reconnectRunning &&
+        !_appSuspended &&
+        !_lifecycleInactive &&
+        !isControlling.value) {
+      _queueFollowerSync(value, _roomRevision);
     }
   }
 
@@ -318,27 +425,50 @@ final class VideoTogetherSession with WidgetsBindingObserver {
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (!_running) return;
+    final generation = _generation;
     if (state == AppLifecycleState.resumed) {
-      final shouldRecover = _appSuspended;
+      final shouldRecover = _appSuspended || _lifecycleInactive;
+      _appInBackground = false;
       _appSuspended = false;
+      _lifecycleInactive = false;
       _lastPlaybackSnapshot = null;
       _pendingLocalMediaChange = false;
+      suppressLocalChanges();
       if (shouldRecover) {
-        unawaited(_reconnect(force: true, restartPlayback: true));
+        unawaited(
+          _reconnect(
+            generation: generation,
+            force: true,
+            restartPlayback: true,
+          ),
+        );
       }
       return;
     }
 
+    if (state == AppLifecycleState.inactive) {
+      _appInBackground = true;
+      _lifecycleInactive = VideoTogetherLifecyclePolicy.shouldSuspend(
+        playbackKeepsPlayingInBackground:
+            _playback?.keepsPlayingInBackground == true,
+      );
+      _lastPlaybackSnapshot = null;
+      _pendingLocalMediaChange = false;
+      return;
+    }
+
     if (const <AppLifecycleState>{
-          AppLifecycleState.hidden,
-          AppLifecycleState.paused,
-          AppLifecycleState.detached,
-        }.contains(state) &&
-        VideoTogetherLifecyclePolicy.shouldSuspend(
-          playbackKeepsPlayingInBackground:
-              _playback?.keepsPlayingInBackground == true,
-        )) {
-      _appSuspended = true;
+      AppLifecycleState.hidden,
+      AppLifecycleState.paused,
+      AppLifecycleState.detached,
+    }.contains(state)) {
+      _appInBackground = true;
+      final shouldSuspend = VideoTogetherLifecyclePolicy.shouldSuspend(
+        playbackKeepsPlayingInBackground:
+            _playback?.keepsPlayingInBackground == true,
+      );
+      _lifecycleInactive = shouldSuspend;
+      _appSuspended = shouldSuspend;
       _lastPlaybackSnapshot = null;
       _pendingLocalMediaChange = false;
     }
@@ -354,41 +484,75 @@ final class VideoTogetherSession with WidgetsBindingObserver {
     final isAvailable =
         results.isNotEmpty &&
         results.any((item) => item != ConnectivityResult.none);
+    _networkAvailable = isAvailable;
     if (!isAvailable) {
       connectionState.value = VideoTogetherConnectionState.disconnected;
-      final disconnect = _client?.disconnect();
-      if (disconnect != null) unawaited(disconnect);
+      final client = _client;
+      _client = null;
+      if (client != null) unawaited(client.disconnect());
       return;
     }
 
     if (!isInitial && _running && !_appSuspended) {
-      unawaited(_reconnect(force: true, restartPlayback: true));
+      unawaited(
+        _reconnect(
+          generation: _generation,
+          force: true,
+          restartPlayback: true,
+        ),
+      );
     }
   }
 
-  void _onDisconnected() {
-    if (!_running) return;
+  void _onDisconnected(int generation) {
+    if (!_isCurrent(generation) || !_sessionReady) return;
     connectionState.value = VideoTogetherConnectionState.disconnected;
-    unawaited(_tick());
+    unawaited(_tick(generation));
   }
 
-  Future<void> _tick() async {
-    if (!_running || _appSuspended || _tickRunning || _applyingRemoteState) {
+  Future<void> _tick(int generation) async {
+    if (_appInBackground) {
+      final keepsPlaying = _playback?.keepsPlayingInBackground == true;
+      if (!keepsPlaying) {
+        _appSuspended = true;
+        _lifecycleInactive = true;
+        _lastPlaybackSnapshot = null;
+        _pendingLocalMediaChange = false;
+        return;
+      }
+      if (_appSuspended || _lifecycleInactive) {
+        _appSuspended = false;
+        _lifecycleInactive = false;
+        suppressLocalChanges();
+        unawaited(
+          _reconnect(
+            generation: generation,
+            force: true,
+            restartPlayback: true,
+          ),
+        );
+        return;
+      }
+    }
+    if (!_canRun(generation) ||
+        _tickRunning ||
+        _reconnectRunning ||
+        _applyingRemoteState) {
       return;
     }
-    _tickRunning = true;
+    _tickGeneration = generation;
     try {
       final client = _client;
-      final now = _localNow();
+      final now = _monotonicNow;
       final connectionStale =
           client != null &&
           client.isConnected &&
-          VideoTogetherConnectionWatchdog.isStale(
-            lastMessageAt: client.lastMessageAt,
-            now: now,
+          VideoTogetherConnectionWatchdog.isStaleElapsed(
+            client.messageSilence,
           );
       if (client == null || !client.isConnected || connectionStale) {
         await _reconnect(
+          generation: generation,
           force: connectionStale,
           restartPlayback: true,
         );
@@ -400,6 +564,7 @@ final class VideoTogetherSession with WidgetsBindingObserver {
           ? VideoTogetherPlaybackSnapshot.capture(playback!, now)
           : null;
       final hasLocalPlaybackChange =
+          _monotonicNow >= _ignoreLocalChangesUntil &&
           snapshot != null &&
           VideoTogetherLocalChangeDetector.hasUserDrivenChange(
             _lastPlaybackSnapshot,
@@ -425,56 +590,74 @@ final class VideoTogetherSession with WidgetsBindingObserver {
           _hasHeldControl = true;
         }
         _pendingLocalMediaChange = false;
-        await _sendRoomUpdate();
+        await _sendRoomUpdate(generation);
       } else if (isControlling.value) {
         if (_memberLoadingStateChanged || now - _lastRoomUpdateAt >= 1.8) {
           _memberLoadingStateChanged = false;
-          await _sendRoomUpdate();
+          await _sendRoomUpdate(generation);
         }
       } else if (room.value case final currentRoom?) {
-        if (_syncRunning) {
-          _pendingFollowerRoom = currentRoom;
-        } else {
-          await _syncFollower(currentRoom);
-        }
+        await _syncFollower(
+          currentRoom,
+          generation,
+          revision: _roomRevision,
+        );
       }
     } catch (error) {
+      if (!_isCurrent(generation)) return;
       if (_isAuthorityConflict(error)) {
         role.value = VideoTogetherRole.member;
         isControlling.value = false;
         errorMessage.value = null;
-        await _reconnect(forceFollower: true, force: true);
-      } else {
+        await _reconnect(
+          generation: generation,
+          forceFollower: true,
+          force: true,
+        );
+      } else if (error is! _VideoTogetherSessionCancelled) {
         errorMessage.value = _friendlyError(error);
       }
     } finally {
-      _capturePlaybackSnapshot();
-      _tickRunning = false;
+      if (_tickGeneration == generation) {
+        if (_isCurrent(generation)) _capturePlaybackSnapshot();
+        _tickGeneration = null;
+      }
     }
   }
 
   Future<void> _reconnect({
+    required int generation,
     bool forceFollower = false,
     bool force = false,
     bool restartPlayback = false,
   }) async {
-    final now = _localNow();
-    if (_reconnectRunning ||
-        !_running ||
-        _appSuspended ||
-        !_reconnectBackoff.canAttempt(now, force: force)) {
+    if (_reconnectRunning) {
+      _reconnectQueue.add(
+        forceFollower: forceFollower,
+        force: force,
+        restartPlayback: restartPlayback,
+      );
+      return;
+    }
+    if (!_canRun(generation) ||
+        !_reconnectBackoff.canAttempt(_monotonicNow, force: force)) {
       return;
     }
 
     final resumeControl = !forceFollower && isControlling.value;
-    _reconnectRunning = true;
+    _reconnectGeneration = generation;
+    _roomRevision += 1;
     connectionState.value = VideoTogetherConnectionState.reconnecting;
     try {
-      await _client?.disconnect();
-      await _connectClient();
-      if (!_running) {
-        await _client?.disconnect();
-        return;
+      final previousClient = _client;
+      _client = null;
+      await previousClient?.disconnect();
+      if (!_canRun(generation)) {
+        throw const _VideoTogetherSessionCancelled();
+      }
+      final client = await _connectClient(generation);
+      if (!_ownsClient(generation, client)) {
+        throw const _VideoTogetherSessionCancelled();
       }
       _lastRoomUpdateAt = 0;
       _lastMemberUpdateAt = 0;
@@ -483,36 +666,67 @@ final class VideoTogetherSession with WidgetsBindingObserver {
         role.value = VideoTogetherRole.member;
         isControlling.value = false;
         await _joinAsFollower(
+          generation,
           forceMemberUpdate: true,
           restartPlayback: restartPlayback,
         );
       } else {
         try {
-          final joinedRoom = await _client!.joinRoom(
+          final joinedRoom = await client.joinRoom(
             roomName: _roomName,
             password: _password,
           );
+          if (!_ownsClient(generation, client)) {
+            throw const _VideoTogetherSessionCancelled();
+          }
           room.value = joinedRoom;
           final playback = _playback;
+          var playbackRecovered = true;
           if (playback != null && _isSameMedia(_media?.url, joinedRoom.url)) {
-            await _applyRemoteState(
-              playback,
+            try {
+              final applied = await _applyRemoteState(
+                playback,
+                joinedRoom,
+                generation: generation,
+                revision: _roomRevision,
+                restartPlayback: restartPlayback,
+              );
+              if (!joinedRoom.paused && !applied) {
+                playbackRecovered = false;
+              }
+            } catch (error) {
+              playbackRecovered = false;
+              errorMessage.value = '播放器恢复失败：${_friendlyError(error)}';
+            }
+          }
+          if (playbackRecovered) {
+            await _sendRoomUpdate(generation);
+          } else {
+            role.value = VideoTogetherRole.member;
+            isControlling.value = false;
+            await _syncFollower(
               joinedRoom,
-              restartPlayback: restartPlayback,
+              generation,
+              revision: _roomRevision,
+              forceMemberUpdate: true,
             );
           }
-          await _sendRoomUpdate();
         } catch (error) {
           if (_isAuthorityConflict(error)) {
             role.value = VideoTogetherRole.member;
             isControlling.value = false;
-            await _client?.disconnect();
-            await _connectClient();
-            if (!_running) {
-              await _client?.disconnect();
-              return;
+            final conflictClient = _client;
+            _client = null;
+            await conflictClient?.disconnect();
+            if (!_canRun(generation)) {
+              throw const _VideoTogetherSessionCancelled();
+            }
+            final followerClient = await _connectClient(generation);
+            if (!_ownsClient(generation, followerClient)) {
+              throw const _VideoTogetherSessionCancelled();
             }
             await _joinAsFollower(
+              generation,
               forceMemberUpdate: true,
               restartPlayback: restartPlayback,
             );
@@ -523,53 +737,95 @@ final class VideoTogetherSession with WidgetsBindingObserver {
                 playback != null &&
                 cachedRoom != null &&
                 _isSameMedia(_media?.url, cachedRoom.url)) {
-              await _applyRemoteState(
-                playback,
-                cachedRoom,
-                restartPlayback: true,
-              );
+              try {
+                await _applyRemoteState(
+                  playback,
+                  cachedRoom,
+                  generation: generation,
+                  revision: _roomRevision,
+                  restartPlayback: true,
+                );
+              } catch (playbackError) {
+                errorMessage.value = '播放器恢复失败：${_friendlyError(playbackError)}';
+              }
             }
-            await _sendRoomUpdate();
+            await _sendRoomUpdate(generation);
           } else {
             rethrow;
           }
         }
       }
 
+      if (!_canRun(generation)) {
+        throw const _VideoTogetherSessionCancelled();
+      }
       _reconnectBackoff.reset();
       connectionState.value = VideoTogetherConnectionState.connected;
-      errorMessage.value = null;
+      if (errorMessage.value?.startsWith('播放器恢复失败：') != true) {
+        errorMessage.value = null;
+      }
       _capturePlaybackSnapshot();
     } catch (error) {
-      if (!_running) return;
-      await _client?.disconnect();
-      _reconnectBackoff.registerFailure(_localNow());
-      connectionState.value = VideoTogetherConnectionState.error;
-      errorMessage.value = _friendlyError(error);
+      if (!_isCurrent(generation)) return;
+      final client = _client;
+      _client = null;
+      await client?.disconnect();
+      if (error is! _VideoTogetherSessionCancelled) {
+        _reconnectBackoff.registerFailure(_monotonicNow);
+        connectionState.value = VideoTogetherConnectionState.error;
+        errorMessage.value = _friendlyError(error);
+      }
     } finally {
-      _reconnectRunning = false;
+      if (_reconnectGeneration == generation) {
+        _reconnectGeneration = null;
+        final pending = _reconnectQueue.take();
+        if (pending != null && _canRun(generation)) {
+          unawaited(
+            _reconnect(
+              generation: generation,
+              forceFollower: pending.forceFollower,
+              force: pending.force,
+              restartPlayback: pending.restartPlayback,
+            ),
+          );
+        }
+      }
     }
   }
 
-  Future<void> _joinAsFollower({
+  Future<void> _joinAsFollower(
+    int generation, {
     bool forceMemberUpdate = false,
     bool restartPlayback = false,
   }) async {
-    final joinedRoom = await _client!.joinRoom(
+    final client = _client;
+    if (client == null || !_ownsClient(generation, client)) {
+      throw const _VideoTogetherSessionCancelled();
+    }
+    final joinedRoom = await client.joinRoom(
       roomName: _roomName,
       password: _password,
     );
+    if (!_ownsClient(generation, client)) {
+      throw const _VideoTogetherSessionCancelled();
+    }
     room.value = joinedRoom;
     await _syncFollower(
       joinedRoom,
+      generation,
+      revision: _roomRevision,
       forceMemberUpdate: forceMemberUpdate,
       restartPlayback: restartPlayback,
     );
   }
 
-  Future<void> _sendRoomUpdate() async {
+  Future<void> _sendRoomUpdate(int generation) async {
     final client = _client;
-    if (client == null || !client.isConnected) return;
+    if (client == null ||
+        !client.isConnected ||
+        !_ownsClient(generation, client)) {
+      return;
+    }
     final playback = _playback;
     final currentRoom = room.value;
 
@@ -580,19 +836,42 @@ final class VideoTogetherSession with WidgetsBindingObserver {
         playback?.isReady == true &&
         playback!.isPlaying) {
       _resumeAfterLoading = true;
+      suppressLocalChanges();
       await playback.pause();
+      suppressLocalChanges();
     } else if (_resumeAfterLoading &&
         !shouldWaitForLoading &&
         playback?.isReady == true) {
       _resumeAfterLoading = false;
+      suppressLocalChanges();
       await playback!.play();
+      suppressLocalChanges();
+    }
+    if (!_ownsClient(generation, client)) {
+      throw const _VideoTogetherSessionCancelled();
     }
 
     final isReady = playback?.isReady == true;
+    final publishedMedia = _media ?? _lastMedia;
     final updateTime = client.serverNow;
     final fallbackPosition = currentRoom?.targetPosition(updateTime) ?? 0;
     _pendingRoomUpdateTime = updateTime;
+    _recentRoomUpdateTimes.add(updateTime);
+    if (_recentRoomUpdateTimes.length > 16) {
+      _recentRoomUpdateTimes.removeRange(
+        0,
+        _recentRoomUpdateTimes.length - 16,
+      );
+    }
     try {
+      final advertisedPaused = isReady
+          ? VideoTogetherSyncPolicy.advertisedPaused(
+              isReady: true,
+              isPlaying: playback!.isPlaying,
+              isBuffering: playback.isBuffering,
+              pausedForMemberLoading: _resumeAfterLoading,
+            )
+          : currentRoom?.paused ?? true;
       final future = client.updateRoom(
         tempUser: _controlUserId,
         password: _password,
@@ -601,24 +880,23 @@ final class VideoTogetherSession with WidgetsBindingObserver {
             ? playback!.playbackRate
             : currentRoom?.playbackRate ?? 1,
         currentTime: isReady ? playback!.positionSeconds : fallbackPosition,
-        paused: VideoTogetherSyncPolicy.advertisedPaused(
-          isReady: isReady,
-          isPlaying: isReady && playback!.isPlaying,
-          isBuffering: isReady && playback!.isBuffering,
-          pausedForMemberLoading: _resumeAfterLoading,
-        ),
-        url: _media?.url ?? '',
+        paused: advertisedPaused,
+        url: publishedMedia?.url ?? currentRoom?.url ?? '',
         lastUpdateClientTime: updateTime,
         duration: isReady && playback!.durationSeconds > 0
             ? playback.durationSeconds
             : currentRoom?.duration ?? 1000000000,
         isProtected: VideoTogetherPreferences.passwordProtected,
-        videoTitle: _media?.title ?? '',
+        videoTitle: publishedMedia?.title ?? currentRoom?.videoTitle ?? '',
         waitForResponse: true,
       );
       if (future == null) throw StateError('服务器未确认房间更新');
-      room.value = await future;
-      _lastRoomUpdateAt = _localNow();
+      final updatedRoom = await future;
+      if (!_ownsClient(generation, client)) {
+        throw const _VideoTogetherSessionCancelled();
+      }
+      room.value = updatedRoom;
+      _lastRoomUpdateAt = _monotonicNow;
     } finally {
       if (_pendingRoomUpdateTime == updateTime) {
         _pendingRoomUpdateTime = null;
@@ -627,107 +905,239 @@ final class VideoTogetherSession with WidgetsBindingObserver {
   }
 
   Future<void> _syncFollower(
-    VideoTogetherRoom currentRoom, {
+    VideoTogetherRoom currentRoom,
+    int generation, {
+    required int revision,
     bool forceMemberUpdate = false,
     bool restartPlayback = false,
-  }) async {
-    final client = _client;
-    if (client == null ||
-        !client.isConnected ||
-        _syncRunning ||
-        isControlling.value) {
-      return;
+  }) {
+    final request = _FollowerSyncRequest(
+      room: currentRoom,
+      generation: generation,
+      revision: revision,
+      forceMemberUpdate: forceMemberUpdate,
+      restartPlayback: restartPlayback,
+    );
+    if (_syncRunning) {
+      _pendingFollowerSync = request.mergeFlags(
+        _pendingFollowerSync ?? _activeFollowerSync,
+      );
+      return _syncCompleter?.future ?? Future<void>.value();
     }
-    _syncRunning = true;
+    if (!_canRun(generation) || isControlling.value) {
+      return Future<void>.value();
+    }
+
+    final completer = Completer<void>();
+    _syncGeneration = generation;
+    _syncCompleter = completer;
+    unawaited(_runFollowerSync(request, completer));
+    return completer.future;
+  }
+
+  Future<void> _runFollowerSync(
+    _FollowerSyncRequest initialRequest,
+    Completer<void> completer,
+  ) async {
+    var request = initialRequest;
     try {
-      final sameMedia = _isSameMedia(_media?.url, currentRoom.url);
-      if (!sameMedia &&
-          currentRoom.url.isNotEmpty &&
-          VideoTogetherPreferences.autoOpenVideo) {
-        await _navigateTo(currentRoom.url);
-      }
-
-      final playback = _playback;
-      var canSync = false;
-      if (playback != null && _isSameMedia(_media?.url, currentRoom.url)) {
-        canSync = await _applyRemoteState(
-          playback,
-          currentRoom,
-          restartPlayback: restartPlayback,
-        );
-      }
-
-      final now = _localNow();
-      if (forceMemberUpdate || now - _lastMemberUpdateAt >= 1.8) {
-        client.updateMember(
-          roomName: _roomName,
-          password: _password,
-          userId: _memberUserId,
-          isLoading: !canSync || playback!.isBuffering,
-          currentUrl: canSync ? currentRoom.url : _media?.url ?? '',
-        );
-        _lastMemberUpdateAt = now;
+      while (_canRun(request.generation) && !isControlling.value) {
+        _pendingFollowerSync = null;
+        _activeFollowerSync = request;
+        try {
+          await _performFollowerSync(request);
+        } catch (error) {
+          if (_isCurrent(request.generation)) {
+            errorMessage.value = '播放器同步失败：${_friendlyError(error)}';
+          }
+        }
+        final pending = _pendingFollowerSync;
+        if (pending == null || pending.generation != request.generation) break;
+        request = pending;
       }
     } finally {
-      _capturePlaybackSnapshot();
-      _syncRunning = false;
-      if (_pendingFollowerRoom case final pendingRoom?) {
-        _pendingFollowerRoom = null;
-        _queueFollowerSync(pendingRoom);
+      if (_syncGeneration == initialRequest.generation &&
+          identical(_syncCompleter, completer)) {
+        _capturePlaybackSnapshot();
+        _syncGeneration = null;
+        _syncCompleter = null;
+        _pendingFollowerSync = null;
+        _activeFollowerSync = null;
       }
+      if (!completer.isCompleted) completer.complete();
     }
   }
 
-  void _queueFollowerSync(VideoTogetherRoom currentRoom) {
-    if (_syncRunning) {
-      _pendingFollowerRoom = currentRoom;
+  Future<void> _performFollowerSync(_FollowerSyncRequest request) async {
+    final client = _client;
+    if (client == null ||
+        !client.isConnected ||
+        !_ownsClient(request.generation, client) ||
+        !_isSyncRequestCurrent(request)) {
       return;
     }
-    unawaited(_syncFollower(currentRoom));
+
+    final sameMedia =
+        _playback != null && _isSameMedia(_media?.url, request.room.url);
+    if (!sameMedia &&
+        request.room.url.isNotEmpty &&
+        VideoTogetherPreferences.autoOpenVideo) {
+      await _navigateTo(request.room.url);
+      if (!_isSyncRequestCurrent(request)) return;
+    }
+
+    final playback = _playback;
+    var canSync = false;
+    if (playback != null && _isSameMedia(_media?.url, request.room.url)) {
+      canSync = await _applyRemoteState(
+        playback,
+        request.room,
+        generation: request.generation,
+        revision: request.revision,
+        restartPlayback: request.restartPlayback,
+      );
+      if (!_isSyncRequestCurrent(request)) return;
+    }
+
+    final now = _monotonicNow;
+    if (request.forceMemberUpdate || now - _lastMemberUpdateAt >= 1.8) {
+      if (!_ownsClient(request.generation, client)) return;
+      client.updateMember(
+        roomName: _roomName,
+        password: _password,
+        userId: _memberUserId,
+        isLoading: !canSync || (playback?.isBuffering ?? true),
+        currentUrl: canSync ? request.room.url : _media?.url ?? '',
+      );
+      _lastMemberUpdateAt = now;
+    }
+  }
+
+  bool _isSyncRequestCurrent(_FollowerSyncRequest request) =>
+      _canRun(request.generation) &&
+      request.revision == _roomRevision &&
+      !isControlling.value;
+
+  void _queueFollowerSync(VideoTogetherRoom currentRoom, int revision) {
+    unawaited(
+      _syncFollower(
+        currentRoom,
+        _generation,
+        revision: revision,
+      ),
+    );
   }
 
   Future<bool> _applyRemoteState(
     VideoTogetherPlayback playback,
     VideoTogetherRoom currentRoom, {
+    required int generation,
+    required int revision,
     bool restartPlayback = false,
+  }) {
+    final commandEpoch = _remoteCommandEpoch;
+    final previous = _remoteApplyTail;
+    final completed = Completer<void>();
+    _remoteApplyTail = completed.future;
+    return _runRemoteStateApply(
+      previous: previous,
+      completed: completed,
+      playback: playback,
+      currentRoom: currentRoom,
+      generation: generation,
+      revision: revision,
+      commandEpoch: commandEpoch,
+      restartPlayback: restartPlayback,
+    );
+  }
+
+  Future<bool> _runRemoteStateApply({
+    required Future<void> previous,
+    required Completer<void> completed,
+    required VideoTogetherPlayback playback,
+    required VideoTogetherRoom currentRoom,
+    required int generation,
+    required int revision,
+    required int commandEpoch,
+    required bool restartPlayback,
   }) async {
-    if (_applyingRemoteState) return false;
-    _applyingRemoteState = true;
     try {
-      return await _remotePlaybackSynchronizer.apply(
+      await previous;
+      if (!_isRemoteCommandCurrent(generation, revision, commandEpoch)) {
+        return false;
+      }
+      final client = _client;
+      if (client == null || !_ownsClient(generation, client)) return false;
+      _applyingGeneration = generation;
+      final applied = await _remotePlaybackSynchronizer.apply(
         playback: playback,
         room: currentRoom,
-        getServerNow: () => _client!.serverNow,
+        getServerNow: () => client.serverNow,
         syncPlaybackRate: VideoTogetherPreferences.syncPlaybackRate,
         waitForLoading: VideoTogetherPreferences.waitForLoading,
         playingThreshold: VideoTogetherPreferences.syncThreshold,
         restartPlayback: restartPlayback,
+        isCurrent: () =>
+            _isRemoteCommandCurrent(generation, revision, commandEpoch),
+        onRemoteCommand: () {
+          if (_isRemoteCommandCurrent(generation, revision, commandEpoch)) {
+            suppressLocalChanges();
+          }
+        },
       );
+      return _isRemoteCommandCurrent(generation, revision, commandEpoch) &&
+          applied;
     } finally {
-      _applyingRemoteState = false;
+      if (_applyingGeneration == generation) {
+        _applyingGeneration = null;
+      }
+      if (commandEpoch != _remoteCommandEpoch) {
+        _remotePlaybackSynchronizer.reset();
+      }
+      if (!completed.isCompleted) completed.complete();
     }
   }
 
+  bool _isRemoteCommandCurrent(
+    int generation,
+    int revision,
+    int commandEpoch,
+  ) =>
+      commandEpoch == _remoteCommandEpoch &&
+      _canRun(generation) &&
+      revision == _roomRevision;
+
   Future<void> _navigateTo(String url, {bool force = false}) async {
-    if (!force && _lastNavigationUrl == url) return;
+    final navigationPending =
+        _expectedRemoteUrl != null &&
+        _isSameMedia(_expectedRemoteUrl, url) &&
+        _monotonicNow - _expectedRemoteAt < 8;
+    if (!force && navigationPending) return;
     final openVideo = _openVideo;
     if (openVideo == null) {
       errorMessage.value = '未配置视频跳转处理器';
       return;
     }
-    _lastNavigationUrl = url;
     _expectedRemoteUrl = url;
-    final handled = await openVideo(url);
-    if (!handled) {
+    _expectedRemoteAt = _monotonicNow;
+    try {
+      final handled = await openVideo(url);
+      if (!handled) {
+        _expectedRemoteUrl = null;
+        _expectedRemoteAt = 0;
+        errorMessage.value = 'PiliPlus 暂不支持房间当前页面：$url';
+      }
+    } catch (error) {
       _expectedRemoteUrl = null;
-      errorMessage.value = 'PiliPlus 暂不支持房间当前页面：$url';
+      _expectedRemoteAt = 0;
+      errorMessage.value = '打开房间视频失败：${_friendlyError(error)}';
     }
   }
 
   void _capturePlaybackSnapshot() {
     final playback = _playback;
     _lastPlaybackSnapshot = playback?.isReady == true
-        ? VideoTogetherPlaybackSnapshot.capture(playback!, _localNow())
+        ? VideoTogetherPlaybackSnapshot.capture(playback!, _monotonicNow)
         : null;
   }
 
@@ -757,4 +1167,35 @@ final class VideoTogetherSession with WidgetsBindingObserver {
     final text = error.toString();
     return text.startsWith('Bad state: ') ? text.substring(11) : text;
   }
+}
+
+final class _FollowerSyncRequest {
+  const _FollowerSyncRequest({
+    required this.room,
+    required this.generation,
+    required this.revision,
+    required this.forceMemberUpdate,
+    required this.restartPlayback,
+  });
+
+  final VideoTogetherRoom room;
+  final int generation;
+  final int revision;
+  final bool forceMemberUpdate;
+  final bool restartPlayback;
+
+  _FollowerSyncRequest mergeFlags(_FollowerSyncRequest? previous) {
+    if (previous == null || previous.generation != generation) return this;
+    return _FollowerSyncRequest(
+      room: room,
+      generation: generation,
+      revision: revision,
+      forceMemberUpdate: forceMemberUpdate || previous.forceMemberUpdate,
+      restartPlayback: restartPlayback || previous.restartPlayback,
+    );
+  }
+}
+
+final class _VideoTogetherSessionCancelled implements Exception {
+  const _VideoTogetherSessionCancelled();
 }

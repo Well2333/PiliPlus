@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:PiliPlus/services/video_together/models.dart';
 import 'package:PiliPlus/services/video_together/playback.dart';
 import 'package:PiliPlus/services/video_together/preferences.dart';
@@ -453,6 +455,32 @@ void main() {
     });
   });
 
+  group('VideoTogetherReconnectQueue', () {
+    test('coalesces reconnect causes without losing recovery flags', () {
+      final queue = VideoTogetherReconnectQueue()
+        ..add(restartPlayback: true)
+        ..add(forceFollower: true)
+        ..add(force: true);
+
+      expect(queue.hasPending, isTrue);
+      final request = queue.take()!;
+      expect(request.forceFollower, isTrue);
+      expect(request.force, isTrue);
+      expect(request.restartPlayback, isTrue);
+      expect(queue.hasPending, isFalse);
+      expect(queue.take(), isNull);
+    });
+
+    test('clear discards a queued reconnect', () {
+      final queue = VideoTogetherReconnectQueue()
+        ..add(force: true)
+        ..clear();
+
+      expect(queue.hasPending, isFalse);
+      expect(queue.take(), isNull);
+    });
+  });
+
   group('VideoTogetherConnectionWatchdog', () {
     test('expires a connected socket without server messages', () {
       expect(
@@ -478,6 +506,21 @@ void main() {
           now: 100,
         ),
         isFalse,
+      );
+    });
+
+    test('uses monotonic elapsed time for an active socket', () {
+      expect(
+        VideoTogetherConnectionWatchdog.isStaleElapsed(
+          const Duration(milliseconds: 7999),
+        ),
+        isFalse,
+      );
+      expect(
+        VideoTogetherConnectionWatchdog.isStaleElapsed(
+          const Duration(seconds: 8),
+        ),
+        isTrue,
       );
     });
   });
@@ -519,6 +562,8 @@ void main() {
       _FakeVideoTogetherPlayback playback, {
       required bool paused,
       bool restartPlayback = false,
+      bool Function()? isCurrent,
+      void Function()? onRemoteCommand,
     }) => synchronizer.apply(
       playback: playback,
       room: room(paused: paused),
@@ -527,6 +572,8 @@ void main() {
       waitForLoading: true,
       playingThreshold: 0.5,
       restartPlayback: restartPlayback,
+      isCurrent: isCurrent,
+      onRemoteCommand: onRemoteCommand,
     );
 
     test(
@@ -605,13 +652,77 @@ void main() {
       expect(playback.playCount, 0);
       expect(playback.isReady, isFalse);
     });
+
+    test(
+      'keeps local-change suppression active across a delayed seek',
+      () async {
+        final synchronizer = VideoTogetherRemotePlaybackSynchronizer();
+        final seekStarted = Completer<void>();
+        final releaseSeek = Completer<void>();
+        final playback = _FakeVideoTogetherPlayback(
+          onSeek: (seconds) async {
+            seekStarted.complete();
+            await releaseSeek.future;
+          },
+        );
+        var commandBoundaryCount = 0;
+
+        final future = apply(
+          synchronizer,
+          playback,
+          paused: false,
+          onRemoteCommand: () => commandBoundaryCount += 1,
+        );
+        await seekStarted.future;
+        expect(commandBoundaryCount.isOdd, isTrue);
+
+        releaseSeek.complete();
+        expect(await future, isTrue);
+        expect(commandBoundaryCount.isEven, isTrue);
+        expect(commandBoundaryCount, greaterThanOrEqualTo(6));
+      },
+    );
+
+    test('stops issuing commands after the session epoch changes', () async {
+      final synchronizer = VideoTogetherRemotePlaybackSynchronizer();
+      final prepareStarted = Completer<void>();
+      final releasePrepare = Completer<void>();
+      var current = true;
+      final playback = _FakeVideoTogetherPlayback(
+        onPrepare: () async {
+          prepareStarted.complete();
+          await releasePrepare.future;
+        },
+      );
+
+      final future = apply(
+        synchronizer,
+        playback,
+        paused: false,
+        isCurrent: () => current,
+      );
+      await prepareStarted.future;
+      current = false;
+      releasePrepare.complete();
+
+      expect(await future, isFalse);
+      expect(playback.prepareCount, 1);
+      expect(playback.playCount, 0);
+      expect(playback.positionSeconds, 0);
+    });
   });
 }
 
 final class _FakeVideoTogetherPlayback implements VideoTogetherPlayback {
-  _FakeVideoTogetherPlayback({this.prepareMakesReady = true});
+  _FakeVideoTogetherPlayback({
+    this.prepareMakesReady = true,
+    this.onPrepare,
+    this.onSeek,
+  });
 
   bool prepareMakesReady;
+  final Future<void> Function()? onPrepare;
+  final Future<void> Function(double seconds)? onSeek;
   int prepareCount = 0;
   int playCount = 0;
   int pauseCount = 0;
@@ -640,6 +751,7 @@ final class _FakeVideoTogetherPlayback implements VideoTogetherPlayback {
   @override
   Future<void> prepare() async {
     prepareCount += 1;
+    await onPrepare?.call();
     if (prepareMakesReady) isReady = true;
   }
 
@@ -663,6 +775,7 @@ final class _FakeVideoTogetherPlayback implements VideoTogetherPlayback {
   @override
   Future<void> seek(double seconds) async {
     positionSeconds = seconds;
+    await onSeek?.call(seconds);
   }
 
   @override

@@ -1,4 +1,5 @@
 import 'package:PiliPlus/plugin/pl_player/controller.dart';
+import 'package:PiliPlus/plugin/pl_player/models/data_status.dart';
 import 'package:PiliPlus/services/video_together/models.dart';
 import 'package:PiliPlus/services/video_together/playback.dart';
 
@@ -6,20 +7,25 @@ final class PlPlayerVideoTogetherPlayback implements VideoTogetherPlayback {
   const PlPlayerVideoTogetherPlayback(
     this.controller, {
     this.preparePlayback,
+    this.isCurrentMediaReady,
   });
 
   final PlPlayerController controller;
   final VideoTogetherPreparePlayback? preparePlayback;
+  final bool Function()? isCurrentMediaReady;
 
   @override
-  bool get isReady => controller.videoPlayerController != null;
+  bool get isReady =>
+      controller.videoPlayerController != null &&
+      controller.dataStatus.value == DataStatus.loaded &&
+      (isCurrentMediaReady?.call() ?? true);
 
   @override
   bool get isPlaying =>
       controller.videoPlayerController?.state.playing ?? false;
 
   @override
-  bool get isBuffering => controller.isBuffering.value;
+  bool get isBuffering => !isReady || controller.isBuffering.value;
   @override
   bool get keepsPlayingInBackground => controller.keepsPlayingInBackground;
 
