@@ -53,6 +53,13 @@ arm64 产物实测 applicationId 为 `com.example.piliplus.dev.ci`，版本为
 `playerInit()` 结束后才绑定，会话无法触发初始拉流，因此不能将该次 CI 成功视为功能问题已经解决。
 后续实现改为视频页建立后立即绑定适配器，并由远端播放态触发与点击封面等价的 Player 准备流程。
 
+初始拉流修复提交 `41bf944a` 推送后，使用 Android-only、空 tag 参数触发 GitHub Actions 运行
+[`35518108961`](https://github.com/Well2333/PiliPlus/actions/runs/35518108961)：Android Release 编译在
+6 分 18 秒内完成，Release 发布步骤明确跳过，三种 ABI 产物全部上传。下载的 arm64 产物实测
+applicationId 为 `com.example.piliplus.dev.ci`，版本为 `2.1.4-41bf944ab+5401`，签名 SHA-256 与
+上述固定证书指纹一致；APK SHA-256 为
+`e8bb0370b90aca66cca2848b43ee8f976bb2aa8d6318a745ba40c1caee0cc1c5`。
+
 ## 仍需真实设备验证
 
 - “我的”页不同宽度、横竖屏和登录状态下入口是否无溢出并符合预期位置；
