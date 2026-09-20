@@ -30,6 +30,11 @@
 [`35504532718`](https://github.com/Well2333/PiliPlus/actions/runs/35504532718) 中完成 Release 构建并通过，
 成功上传 `armeabi-v7a`、`arm64-v8a` 和 `x86_64` 三种 ABI 的 APK。
 
+本次修复和分发调整推送后，GitHub Actions 运行
+[`35510008649`](https://github.com/Well2333/PiliPlus/actions/runs/35510008649) 在 6 分 28 秒内完成，固定签名写入、
+Release 编译和三种 ABI 上传全部成功。下载的 arm64 产物实测 applicationId 为
+`com.example.piliplus.dev.ci`，版本为 `2.1.4-3f8d9d42a+5395`，签名 SHA-256 与上述固定证书指纹一致。
+
 ## 仍需真实设备验证
 
 - “我的”页不同宽度、横竖屏和登录状态下入口是否无溢出并符合预期位置；
