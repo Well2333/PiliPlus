@@ -56,14 +56,18 @@ VideoTogether 的公开服务器协议，使 PiliPlus 客户端能够创建或�
 本分支以 [`VideoTogether/VideoTogether`](https://github.com/VideoTogether/VideoTogether)
 的实际客户端/服务端通信为兼容目标，而不是仅实现一个名称相似的私有协议。
 
-正式编码前必须通过 VideoTogether 源码确认：
+对官方浏览器客户端、Go 服务端和 `docs/HttpApiSpec.md` 交叉核对后，确认：
 
-1. 默认服务器、传输协议和版本协商方式；
-2. 创建、加入、离开房间的消息结构；
-3. 视频地址/标识、播放状态、时间戳和进度的表示；
-4. 房主权限、密码、用户名及错误响应；
-5. 心跳、重连、时钟偏差与进度校正策略；
-6. Web 端特有字段在原生 Flutter 客户端中的降级规则。
+1. 默认服务地址为 `https://vt.panghair.com:5000`；
+2. WebSocket 端点为 `/ws?language=zh-cn`，消息使用 JSON；
+3. 房主使用 `/room/update` 创建并持续更新房间，成员使用 `/room/join` 和
+   `/room/update_member`；
+4. 官方客户端每两秒执行同步任务，服务端清理三分钟未更新的房间；
+5. 服务端通过 `replay_timestamp` 返回四时间戳，客户端据此修正跨设备时钟差；
+6. 房间状态包含 URL、标题、播放/暂停、进度、倍速、时长、成员数和等待缓冲状态；
+7. 文字消息使用 `send_txtmsg`；语音、EasyShare 与 M3U8 中继是独立扩展能力。
+
+稳定的协议和架构约定已整理至 `docs/guidelines/videotogether.md`。
 
 ## 产品入口要求
 

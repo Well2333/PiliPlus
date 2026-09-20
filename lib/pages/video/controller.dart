@@ -47,11 +47,13 @@ import 'package:PiliPlus/pages/video/note/view.dart';
 import 'package:PiliPlus/pages/video/post_panel/view.dart';
 import 'package:PiliPlus/pages/video/send_danmaku/view.dart';
 import 'package:PiliPlus/pages/video/widgets/header_control.dart';
+import 'package:PiliPlus/pages/video_together/playback_adapter.dart';
 import 'package:PiliPlus/plugin/pl_player/controller.dart';
 import 'package:PiliPlus/plugin/pl_player/models/data_source.dart';
 import 'package:PiliPlus/plugin/pl_player/models/heart_beat_type.dart';
 import 'package:PiliPlus/plugin/pl_player/models/play_status.dart';
 import 'package:PiliPlus/services/download/download_service.dart';
+import 'package:PiliPlus/services/video_together/session.dart';
 import 'package:PiliPlus/utils/accounts.dart';
 import 'package:PiliPlus/utils/connectivity_utils.dart';
 import 'package:PiliPlus/utils/extension/context_ext.dart';
@@ -763,6 +765,10 @@ class VideoDetailController extends GetxController
     if (isClosed) return;
 
     if (!isFileSource) {
+      _bindVideoTogetherPlayback();
+    }
+
+    if (!isFileSource) {
       if (plPlayerController.enableBlock) {
         initSkip();
       }
@@ -777,6 +783,52 @@ class VideoDetailController extends GetxController
     }
 
     defaultST = null;
+  }
+
+  void _bindVideoTogetherPlayback() {
+    final title = _videoTogetherTitle;
+    final media = switch ((isUgc, epId)) {
+      (false, final int epId) => VideoTogetherMediaBuilder.pgc(
+        epId: epId,
+        title: title,
+      ),
+      _ => VideoTogetherMediaBuilder.ugc(
+        bvid: bvid,
+        title: title,
+        part: _videoTogetherPart,
+      ),
+    };
+    VideoTogetherSession.instance.bindPlayback(
+      PlPlayerVideoTogetherPlayback(plPlayerController),
+      media,
+    );
+  }
+
+  String get _videoTogetherTitle {
+    if (args['title'] case final String title when title.isNotEmpty) {
+      return title;
+    }
+    try {
+      final title = isUgc
+          ? Get.find<UgcIntroController>(tag: heroTag).videoDetail.value.title
+          : Get.find<PgcIntroController>(tag: heroTag).videoDetail.value.title;
+      if (title?.isNotEmpty == true) return title!;
+    } catch (_) {}
+    return isUgc ? bvid : '番剧 $epId';
+  }
+
+  int get _videoTogetherPart {
+    if (!isUgc) return 1;
+    try {
+      final pages = Get.find<UgcIntroController>(tag: heroTag)
+          .videoDetail
+          .value
+          .pages;
+      final index = pages?.indexWhere((item) => item.cid == cid.value) ?? -1;
+      return index < 0 ? 1 : index + 1;
+    } catch (_) {
+      return 1;
+    }
   }
 
   bool isQuerying = false;
