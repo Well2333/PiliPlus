@@ -14,12 +14,15 @@
 - 默认服务器双客户端冒烟测试：创建临时房间、第二客户端加入、成员状态回传、文字消息互通均成功；
 - 临时测试房间未持久化，停止上报后由 VideoTogether 服务端自动清理。
 
-## 自动构建状态
+## Android 构建状态
 
 本地 Android debug 构建已进入 Gradle `assembleDebug`，但依赖下载阶段连接
 `plugins.gradle.org` 超时并终止 TLS 握手，未得到 APK。失败发生在 Kotlin Gradle 插件依赖解析，
-不是 Dart 编译、Android 资源或本分支代码错误。推送分支后使用仓库原有 GitHub Actions Android
-工作流继续验证完整构建。
+不是 Dart 编译、Android 资源或本分支代码错误。
+
+推送分支后，仓库原有 GitHub Actions Android 工作流在运行
+[`35504532718`](https://github.com/Well2333/PiliPlus/actions/runs/35504532718) 中完成 Release 构建并通过，
+成功上传 `armeabi-v7a`、`arm64-v8a` 和 `x86_64` 三种 ABI 的 APK。
 
 ## 仍需真实设备验证
 
