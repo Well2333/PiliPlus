@@ -83,14 +83,18 @@ jobs:
               run: lib/scripts/patch.ps1 android
 
             - name: Write key
-              if: github.event_name == 'workflow_dispatch'
+              env:
+                  SIGN_KEYSTORE_BASE64: ${{ secrets.SIGN_KEYSTORE_BASE64 }}
+                  KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+                  KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
+                  KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
               run: |
-                  if [ ! -z "${{ secrets.SIGN_KEYSTORE_BASE64 }}" ]; then
-                    echo "${{ secrets.SIGN_KEYSTORE_BASE64 }}" | base64 --decode > android/app/key.jks
+                  if [ -n "$SIGN_KEYSTORE_BASE64" ]; then
+                    printf '%s' "$SIGN_KEYSTORE_BASE64" | base64 --decode > android/app/key.jks
                     echo storeFile='key.jks' >> android/key.properties
-                    echo storePassword='${{ secrets.KEYSTORE_PASSWORD }}' >> android/key.properties
-                    echo keyAlias='${{ secrets.KEY_ALIAS }}' >> android/key.properties
-                    echo keyPassword='${{ secrets.KEY_PASSWORD }}' >> android/key.properties
+                    echo storePassword="$KEYSTORE_PASSWORD" >> android/key.properties
+                    echo keyAlias="$KEY_ALIAS" >> android/key.properties
+                    echo keyPassword="$KEY_PASSWORD" >> android/key.properties
                   fi
 
             - name: Set and Extract version
@@ -100,12 +104,21 @@ jobs:
 
             - name: Flutter Build Release Apk
               if: ${{ github.event_name == 'workflow_dispatch' }}
-              run: flutter build apk --release --split-per-abi --dart-define-from-file=pili_release.json --no-pub
+              run: |
+                  android_project_args=()
+                  if [[ "$GITHUB_REPOSITORY" != "bggRGjQaUbCoE/PiliPlus" ]]; then
+                    if [[ -n "${{ github.event.inputs.tag }}" ]]; then
+                      android_project_args+=(--android-project-arg dev=1)
+                    else
+                      android_project_args+=(--android-project-arg ci=1)
+                    fi
+                  fi
+                  flutter build apk --release --split-per-abi --dart-define-from-file=pili_release.json --no-pub "${android_project_args[@]}"
 
             - name: Flutter Build Dev Apk
               if: ${{ github.event_name == 'pull_request' }}
               run: |
-                  flutter build apk --release --split-per-abi --android-project-arg dev=1 --no-pub
+                  flutter build apk --release --split-per-abi --android-project-arg ci=1 --no-pub
 
             - name: Rename
               run: |
