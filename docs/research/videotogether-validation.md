@@ -36,6 +36,12 @@
 Release 编译和三种 ABI 上传全部成功。下载的 arm64 产物实测 applicationId 为
 `com.example.piliplus.dev.ci`，版本为 `2.1.4-3f8d9d42a+5395`，签名 SHA-256 与上述固定证书指纹一致。
 
+兼容模式、同步时序和缓冲等待修复提交 `d7a9b2eb` 推送后，使用空 tag 且仅启用 Android 的参数触发
+GitHub Actions 运行 [`35514979228`](https://github.com/Well2333/PiliPlus/actions/runs/35514979228)：
+Android Release 编译在 6 分 24 秒内完成，Release 发布步骤明确跳过，三种 ABI 产物全部上传。下载的
+arm64 产物实测 applicationId 为 `com.example.piliplus.dev.ci`，版本为
+`2.1.4-d7a9b2ebd+5397`，签名 SHA-256 与上述固定证书指纹一致。
+
 ## 仍需真实设备验证
 
 - “我的”页不同宽度、横竖屏和登录状态下入口是否无溢出并符合预期位置；
