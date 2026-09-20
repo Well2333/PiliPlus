@@ -42,6 +42,13 @@ Android Release 编译在 6 分 24 秒内完成，Release 发布步骤明确跳�
 arm64 产物实测 applicationId 为 `com.example.piliplus.dev.ci`，版本为
 `2.1.4-d7a9b2ebd+5397`，签名 SHA-256 与上述固定证书指纹一致。
 
+跟随端首次播放和暂停后恢复修复提交 `eccb2c24` 推送后，使用相同的 Android-only、空 tag 参数触发
+GitHub Actions 运行 [`35516154740`](https://github.com/Well2333/PiliPlus/actions/runs/35516154740)：
+Android Release 编译在 7 分 31 秒内完成，Release 发布步骤明确跳过，三种 ABI 产物全部上传。下载的
+arm64 产物实测 applicationId 为 `com.example.piliplus.dev.ci`，版本为
+`2.1.4-eccb2c247+5399`，签名 SHA-256 与上述固定证书指纹一致；APK SHA-256 为
+`76f5a2b9e17a818ef92ca5550627ec2a900e41f0c7405e883ed6433044c5235a`。
+
 ## 仍需真实设备验证
 
 - “我的”页不同宽度、横竖屏和登录状态下入口是否无溢出并符合预期位置；
