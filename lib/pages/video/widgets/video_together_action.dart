@@ -1,5 +1,5 @@
 import 'package:PiliPlus/pages/video/introduction/ugc/widgets/action_item.dart';
-import 'package:PiliPlus/services/video_together/capability.dart';
+import 'package:PiliPlus/services/video_together/entry_policy.dart';
 import 'package:PiliPlus/services/video_together/preferences.dart';
 import 'package:PiliPlus/services/video_together/session.dart';
 import 'package:get/get.dart';

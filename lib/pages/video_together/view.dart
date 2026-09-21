@@ -139,8 +139,8 @@ class _VideoTogetherPageState extends State<VideoTogetherPage> {
         const SizedBox(height: 24),
         const Text(
           '创建房间后可再打开任意 B 站视频；加入者会自动打开房间当前的投稿或番剧。'
-          '双向同步默认允许任一成员通过本地操作接管；关闭后，未知或官方成员只跟随，'
-          '通过文字消息确认全为 PiliPlus 时仍自动允许双向控制。'
+          '加入房间后可在房间页面选择是否允许双向同步控制。'
+          '与官方浏览器插件或不支持控制权交接的客户端同房时应关闭该功能。'
           '当前不支持 VideoTogether 的语音和 EasyShare 媒体中继。',
         ),
       ],
@@ -154,9 +154,6 @@ class _VideoTogetherPageState extends State<VideoTogetherPage> {
         ? '房主'
         : '成员';
     final controlText = _session.isControlling.value ? '控制中' : '跟随中';
-    final piliPlusCountText = VideoTogetherPreferences.markPiliPlusNickname
-        ? '（PiliPlus 用户：${_session.piliPlusMemberCount.value}）'
-        : '';
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
@@ -179,13 +176,33 @@ class _VideoTogetherPageState extends State<VideoTogetherPage> {
                 ),
                 const SizedBox(height: 8),
                 Text('连接：${_connectionLabel(_session.connectionState.value)}'),
-                Text('在线成员：${room?.memberCount ?? '-'}$piliPlusCountText'),
+                Text('在线成员：${room?.memberCount ?? '-'}'),
                 if (room?.videoTitle.isNotEmpty == true)
                   Text('当前视频：${room!.videoTitle}'),
                 if (room?.url.isNotEmpty == true)
                   Text(room!.url, maxLines: 2, overflow: TextOverflow.ellipsis),
               ],
             ),
+          ),
+        ),
+        const SizedBox(height: 8),
+        Card(
+          child: SwitchListTile(
+            title: const Text('允许双向同步控制'),
+            subtitle: const Text(
+              '仅当房间内所有客户端都支持“最后操作者接管”时开启。\n'
+              '与官方 VideoTogether 浏览器插件、旧版或其他客户端同房，'
+              '或出现“其他房主正在同步”及反复抢控时请关闭。\n'
+              '关闭后普通加入者只能跟随；创建者或曾经持有控制权的客户端仍可重新接管。',
+            ),
+            value: VideoTogetherPreferences.bidirectionalSync,
+            onChanged: (value) async {
+              try {
+                await _session.setBidirectionalSync(value);
+              } catch (error) {
+                SmartDialog.showToast('保存双向同步设置失败：$error');
+              }
+            },
           ),
         ),
         if (_session.errorMessage.value case final error?) ...[

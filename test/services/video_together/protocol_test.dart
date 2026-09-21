@@ -1,6 +1,6 @@
 import 'dart:async';
 
-import 'package:PiliPlus/services/video_together/capability.dart';
+import 'package:PiliPlus/services/video_together/entry_policy.dart';
 import 'package:PiliPlus/services/video_together/models.dart';
 import 'package:PiliPlus/services/video_together/playback.dart';
 import 'package:PiliPlus/services/video_together/preferences.dart';
@@ -9,92 +9,6 @@ import 'package:PiliPlus/services/video_together/recovery.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
-  group('VideoTogetherCapability', () {
-    test('adds a unique protocol marker but only displays the suffix', () {
-      expect(VideoTogetherPreferences.defaultMarkPiliPlusNickname, isTrue);
-      final protocolNickname = VideoTogetherCapability.protocolNickname(
-        nickname: 'Alice',
-        clientId: 'client-1',
-        enabled: true,
-      );
-
-      expect(protocolNickname, endsWith('[piliplus]'));
-      expect(
-        VideoTogetherCapability.isPiliPlusNickname(protocolNickname),
-        isTrue,
-      );
-      expect(
-        VideoTogetherCapability.displayNickname(protocolNickname),
-        'Alice[piliplus]',
-      );
-      expect(
-        VideoTogetherCapability.editableNickname(protocolNickname),
-        'Alice',
-      );
-      expect(VideoTogetherCapability.clientId(protocolNickname), 'client-1');
-    });
-
-    test('does not add or expose the marker when disabled', () {
-      final protocolNickname = VideoTogetherCapability.protocolNickname(
-        nickname: 'Alice[piliplus]',
-        clientId: 'client-1',
-        enabled: false,
-      );
-
-      expect(protocolNickname, 'Alice');
-      expect(
-        VideoTogetherCapability.isPiliPlusNickname(protocolNickname),
-        isFalse,
-      );
-    });
-
-    test('recognizes all unique PiliPlus clients conservatively', () {
-      final tracker = VideoTogetherPresenceTracker()..updateMemberCount(2);
-
-      expect(
-        tracker.register(
-          VideoTogetherCapability.protocolNickname(
-            nickname: 'PiliPlus 用户',
-            clientId: 'first',
-            enabled: true,
-          ),
-        ),
-        isTrue,
-      );
-      expect(tracker.allParticipantsRecognized, isFalse);
-      tracker.register(
-        VideoTogetherCapability.protocolNickname(
-          nickname: 'PiliPlus 用户',
-          clientId: 'second',
-          enabled: true,
-        ),
-      );
-      expect(tracker.recognizedCount, 2);
-      expect(tracker.allParticipantsRecognized, isTrue);
-
-      tracker.updateMemberCount(3);
-      expect(tracker.recognizedCount, 0);
-      expect(tracker.allParticipantsRecognized, isFalse);
-    });
-
-    test('only bypasses compatibility after all clients are recognized', () {
-      expect(
-        VideoTogetherCapability.effectiveBidirectionalSync(
-          configured: false,
-          allParticipantsPiliPlus: false,
-        ),
-        isFalse,
-      );
-      expect(
-        VideoTogetherCapability.effectiveBidirectionalSync(
-          configured: false,
-          allParticipantsPiliPlus: true,
-        ),
-        isTrue,
-      );
-    });
-  });
-
   group('VideoTogetherPlayerEntryPolicy', () {
     test('hides outside a room by default but always shows inside', () {
       expect(

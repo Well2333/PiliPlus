@@ -7,7 +7,6 @@ abstract final class VideoTogetherPreferences {
   static const autoOpenVideoKey = 'videoTogetherAutoOpenVideo';
   static const syncPlaybackRateKey = 'videoTogetherSyncPlaybackRate';
   static const bidirectionalSyncKey = 'videoTogetherBidirectionalSync';
-  static const markPiliPlusNicknameKey = 'videoTogetherMarkPiliPlusNickname';
   static const waitForLoadingKey = 'videoTogetherWaitForLoading';
   static const passwordProtectedKey = 'videoTogetherPasswordProtected';
   static const syncThresholdKey = 'videoTogetherSyncThreshold';
@@ -16,7 +15,6 @@ abstract final class VideoTogetherPreferences {
   static const hidePlayerEntryWhenNotInRoomKey =
       'videoTogetherHidePlayerMenuEntry';
   static const defaultSyncThreshold = 0.5;
-  static const defaultMarkPiliPlusNickname = true;
   static const defaultHidePlayerEntryWhenNotInRoom = true;
 
   static String get server => GStorage.setting.get(
@@ -36,10 +34,9 @@ abstract final class VideoTogetherPreferences {
   static bool get bidirectionalSync =>
       GStorage.setting.get(bidirectionalSyncKey, defaultValue: true);
 
-  static bool get markPiliPlusNickname => GStorage.setting.get(
-    markPiliPlusNicknameKey,
-    defaultValue: defaultMarkPiliPlusNickname,
-  );
+  static Future<void> setBidirectionalSync(bool value) =>
+      GStorage.setting.put(bidirectionalSyncKey, value);
+
   static bool get waitForLoading =>
       GStorage.setting.get(waitForLoadingKey, defaultValue: true);
 

@@ -1,5 +1,4 @@
 import 'package:PiliPlus/common/widgets/scaffold/simple_scaffold.dart';
-import 'package:PiliPlus/services/video_together/capability.dart';
 import 'package:PiliPlus/services/video_together/preferences.dart';
 import 'package:PiliPlus/services/video_together/protocol.dart';
 import 'package:PiliPlus/services/video_together/session.dart';
@@ -24,8 +23,6 @@ class _VideoTogetherSettingsPageState extends State<VideoTogetherSettingsPage> {
   late final TextEditingController _nicknameController;
   late bool _autoOpenVideo;
   late bool _syncPlaybackRate;
-  late bool _bidirectionalSync;
-  late bool _markPiliPlusNickname;
   late bool _waitForLoading;
   late bool _passwordProtected;
   late bool _hidePlayerEntryWhenNotInRoom;
@@ -38,14 +35,10 @@ class _VideoTogetherSettingsPageState extends State<VideoTogetherSettingsPage> {
       text: VideoTogetherPreferences.server,
     );
     _nicknameController = TextEditingController(
-      text: VideoTogetherCapability.editableNickname(
-        VideoTogetherPreferences.nickname,
-      ),
+      text: VideoTogetherPreferences.nickname,
     );
     _autoOpenVideo = VideoTogetherPreferences.autoOpenVideo;
     _syncPlaybackRate = VideoTogetherPreferences.syncPlaybackRate;
-    _bidirectionalSync = VideoTogetherPreferences.bidirectionalSync;
-    _markPiliPlusNickname = VideoTogetherPreferences.markPiliPlusNickname;
     _waitForLoading = VideoTogetherPreferences.waitForLoading;
     _passwordProtected = VideoTogetherPreferences.passwordProtected;
     _hidePlayerEntryWhenNotInRoom =
@@ -106,13 +99,6 @@ class _VideoTogetherSettingsPageState extends State<VideoTogetherSettingsPage> {
         ),
         SwitchListTile(
           contentPadding: EdgeInsets.zero,
-          title: const Text('在昵称后添加 [piliplus]'),
-          subtitle: const Text('用于识别同为 PiliPlus 的房间成员；昵称输入框不显示该后缀'),
-          value: _markPiliPlusNickname,
-          onChanged: (value) => setState(() => _markPiliPlusNickname = value),
-        ),
-        SwitchListTile(
-          contentPadding: EdgeInsets.zero,
           title: const Text('未加入房间时隐藏'),
           subtitle: const Text('加入房间后，视频操作栏中的“一起看”入口始终显示'),
           value: _hidePlayerEntryWhenNotInRoom,
@@ -132,15 +118,6 @@ class _VideoTogetherSettingsPageState extends State<VideoTogetherSettingsPage> {
           subtitle: const Text('跟随当前控制端的播放倍速'),
           value: _syncPlaybackRate,
           onChanged: (value) => setState(() => _syncPlaybackRate = value),
-        ),
-        SwitchListTile(
-          contentPadding: EdgeInsets.zero,
-          title: const Text('双向同步控制'),
-          subtitle: const Text(
-            '关闭后对未知或官方成员启用兼容模式；确认全为 PiliPlus 时仍允许双向控制',
-          ),
-          value: _bidirectionalSync,
-          onChanged: (value) => setState(() => _bidirectionalSync = value),
         ),
         SwitchListTile(
           contentPadding: EdgeInsets.zero,
@@ -215,9 +192,7 @@ class _VideoTogetherSettingsPageState extends State<VideoTogetherSettingsPage> {
     try {
       final server = VideoTogetherProtocol.serverUri(_serverController.text)
           .toString();
-      final nickname = VideoTogetherCapability.editableNickname(
-        _nicknameController.text,
-      );
+      final nickname = _nicknameController.text.trim();
       await GStorage.setting.putAll({
         VideoTogetherPreferences.serverKey: server,
         VideoTogetherPreferences.nicknameKey: nickname.isEmpty
@@ -225,8 +200,6 @@ class _VideoTogetherSettingsPageState extends State<VideoTogetherSettingsPage> {
             : nickname,
         VideoTogetherPreferences.autoOpenVideoKey: _autoOpenVideo,
         VideoTogetherPreferences.syncPlaybackRateKey: _syncPlaybackRate,
-        VideoTogetherPreferences.bidirectionalSyncKey: _bidirectionalSync,
-        VideoTogetherPreferences.markPiliPlusNicknameKey: _markPiliPlusNickname,
         VideoTogetherPreferences.waitForLoadingKey: _waitForLoading,
         VideoTogetherPreferences.passwordProtectedKey: _passwordProtected,
         VideoTogetherPreferences.syncThresholdKey: _syncThreshold,

@@ -1,6 +1,5 @@
 import 'dart:async';
 
-import 'package:PiliPlus/services/video_together/capability.dart';
 import 'package:PiliPlus/services/video_together/client.dart';
 import 'package:PiliPlus/services/video_together/models.dart';
 import 'package:PiliPlus/services/video_together/playback.dart';
@@ -28,7 +27,6 @@ final class VideoTogetherSession with WidgetsBindingObserver {
   final isControlling = false.obs;
   final messages = <VideoTogetherTextMessage>[].obs;
   final preferenceRevision = 0.obs;
-  final piliPlusMemberCount = 0.obs;
 
   VideoTogetherClient? _client;
   VideoTogetherPlayback? _playback;
@@ -45,7 +43,7 @@ final class VideoTogetherSession with WidgetsBindingObserver {
   String _memberUserId = '';
   String _controlUserId = '';
   String? _expectedRemoteUrl;
-  String _protocolNickname = '';
+  String _messageSender = '';
   double _expectedRemoteAt = 0;
   double? _pendingRoomUpdateTime;
   double _lastRoomUpdateAt = 0;
@@ -77,7 +75,6 @@ final class VideoTogetherSession with WidgetsBindingObserver {
   final _recentRoomUpdateTimes = <double>[];
   int _remoteCommandEpoch = 0;
   final _remotePlaybackSynchronizer = VideoTogetherRemotePlaybackSynchronizer();
-  final _presenceTracker = VideoTogetherPresenceTracker();
   final _reconnectBackoff = VideoTogetherReconnectBackoff();
   final _reconnectQueue = VideoTogetherReconnectQueue();
   final _uptime = Stopwatch()..start();
@@ -92,9 +89,6 @@ final class VideoTogetherSession with WidgetsBindingObserver {
   String get currentPassword => _password;
   VideoTogetherMedia? get media => _media ?? _lastMedia;
 
-  bool get _allParticipantsPiliPlus =>
-      VideoTogetherPreferences.markPiliPlusNickname &&
-      _presenceTracker.allParticipantsRecognized;
   double get _monotonicNow => _uptime.elapsedMicroseconds / 1000000;
 
   bool _isCurrent(int generation) => _running && generation == _generation;
@@ -123,34 +117,17 @@ final class VideoTogetherSession with WidgetsBindingObserver {
 
   void refreshPreferences() {
     preferenceRevision.value += 1;
-    if (!_running) return;
-    _protocolNickname = _buildProtocolNickname();
-    _presenceTracker.clear();
-    if (room.value case final currentRoom?) {
-      _presenceTracker.updateMemberCount(currentRoom.memberCount);
-    }
-    _registerOwnPiliPlusClient();
-    _publishPiliPlusMemberCount();
+    if (_running) _messageSender = _buildMessageSender();
   }
 
-  String _buildProtocolNickname() => VideoTogetherCapability.protocolNickname(
-    nickname: VideoTogetherPreferences.nickname,
-    clientId: _memberUserId,
-    enabled: VideoTogetherPreferences.markPiliPlusNickname,
-  );
-
-  void _registerOwnPiliPlusClient() {
-    if (VideoTogetherPreferences.markPiliPlusNickname) {
-      _presenceTracker.register(_protocolNickname);
-    }
+  Future<void> setBidirectionalSync(bool enabled) async {
+    await VideoTogetherPreferences.setBidirectionalSync(enabled);
+    refreshPreferences();
   }
 
-  void _publishPiliPlusMemberCount() {
-    final onlineCount = room.value?.memberCount ?? 0;
-    final recognizedCount = _presenceTracker.recognizedCount;
-    piliPlusMemberCount.value = onlineCount > 0 && recognizedCount > onlineCount
-        ? onlineCount
-        : recognizedCount;
+  String _buildMessageSender() {
+    final nickname = VideoTogetherPreferences.nickname.trim();
+    return nickname.isEmpty ? 'PiliPlus 用户' : nickname;
   }
 
   void bindPlayback(VideoTogetherPlayback playback, VideoTogetherMedia media) {
@@ -227,7 +204,7 @@ final class VideoTogetherSession with WidgetsBindingObserver {
     _password = password;
     _server = VideoTogetherPreferences.server;
     _memberUserId = _newUserId();
-    _protocolNickname = _buildProtocolNickname();
+    _messageSender = _buildMessageSender();
     _controlUserId = _newUserId();
     role.value = targetRole;
     isControlling.value = targetRole == VideoTogetherRole.host;
@@ -307,9 +284,7 @@ final class VideoTogetherSession with WidgetsBindingObserver {
     _server = '';
     _memberUserId = '';
     _controlUserId = '';
-    _protocolNickname = '';
-    _presenceTracker.clear();
-    piliPlusMemberCount.value = 0;
+    _messageSender = '';
     _expectedRemoteUrl = null;
     _expectedRemoteAt = 0;
     _pendingRoomUpdateTime = null;
@@ -340,7 +315,7 @@ final class VideoTogetherSession with WidgetsBindingObserver {
       throw StateError('尚未连接 VideoTogether 服务器');
     }
     client.sendTextMessage(
-      sender: _protocolNickname,
+      sender: _messageSender,
       text: text,
     );
   }
@@ -387,9 +362,6 @@ final class VideoTogetherSession with WidgetsBindingObserver {
 
   void _onRoom(String method, VideoTogetherRoom value) {
     final previousRoom = room.value;
-    final memberCountChanged = _presenceTracker.updateMemberCount(
-      value.memberCount,
-    );
     final isOwnUpdate =
         method == VideoTogetherProtocol.roomUpdate &&
         _recentRoomUpdateTimes.any(
@@ -397,10 +369,6 @@ final class VideoTogetherSession with WidgetsBindingObserver {
         );
     _roomRevision += 1;
     room.value = value;
-    if (memberCountChanged) {
-      _registerOwnPiliPlusClient();
-      _publishPiliPlusMemberCount();
-    }
     errorMessage.value = null;
 
     if (method == VideoTogetherProtocol.roomUpdate) {
@@ -433,18 +401,13 @@ final class VideoTogetherSession with WidgetsBindingObserver {
   }
 
   void _onTextMessage(String sender, String text) {
-    if (VideoTogetherCapability.isPiliPlusNickname(sender) &&
-        _presenceTracker.register(sender)) {
-      _publishPiliPlusMemberCount();
-    }
     if (text.isEmpty) return;
-    final displaySender = VideoTogetherCapability.displayNickname(sender);
     messages.add(
       VideoTogetherTextMessage(
-        sender: displaySender.isEmpty ? '匿名用户' : displaySender,
+        sender: sender.trim().isEmpty ? '匿名用户' : sender.trim(),
         text: text,
         receivedAt: DateTime.now(),
-        isMine: sender == _protocolNickname,
+        isMine: sender == _messageSender,
       ),
     );
     if (messages.length > 100) messages.removeRange(0, messages.length - 100);
@@ -631,10 +594,7 @@ final class VideoTogetherSession with WidgetsBindingObserver {
           _pendingLocalMediaChange || hasLocalPlaybackChange;
       final canTakeControl = VideoTogetherSyncPolicy.canTakeControl(
         hasHeldControl: _hasHeldControl,
-        bidirectionalSync: VideoTogetherCapability.effectiveBidirectionalSync(
-          configured: VideoTogetherPreferences.bidirectionalSync,
-          allParticipantsPiliPlus: _allParticipantsPiliPlus,
-        ),
+        bidirectionalSync: VideoTogetherPreferences.bidirectionalSync,
       );
       final shouldTakeControl = canTakeControl && wantsToTakeControl;
 
