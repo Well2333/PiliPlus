@@ -40,7 +40,6 @@ import 'package:PiliPlus/plugin/pl_player/models/data_source.dart';
 import 'package:PiliPlus/plugin/pl_player/models/play_repeat.dart';
 import 'package:PiliPlus/services/shutdown_timer_service.dart'
     show shutdownTimerService, ShutdownPanel;
-import 'package:PiliPlus/services/video_together/preferences.dart';
 import 'package:PiliPlus/utils/accounts.dart';
 import 'package:PiliPlus/utils/accounts/account.dart';
 import 'package:PiliPlus/utils/android/bindings.g.dart';
@@ -378,17 +377,6 @@ class HeaderControlState extends State<HeaderControl>
             child: ListView(
               padding: const EdgeInsets.symmetric(vertical: 14),
               children: [
-                if (!isFileSource &&
-                    !VideoTogetherPreferences.hidePlayerMenuEntry)
-                  ListTile(
-                    dense: true,
-                    onTap: () {
-                      Navigator.pop(context);
-                      Get.toNamed('/videoTogether');
-                    },
-                    leading: const Icon(Icons.groups_2_outlined, size: 20),
-                    title: const Text('一起看', style: titleStyle),
-                  ),
                 ListTile(
                   dense: true,
                   onTap: () {

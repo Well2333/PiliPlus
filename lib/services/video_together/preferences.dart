@@ -7,12 +7,17 @@ abstract final class VideoTogetherPreferences {
   static const autoOpenVideoKey = 'videoTogetherAutoOpenVideo';
   static const syncPlaybackRateKey = 'videoTogetherSyncPlaybackRate';
   static const bidirectionalSyncKey = 'videoTogetherBidirectionalSync';
+  static const markPiliPlusNicknameKey = 'videoTogetherMarkPiliPlusNickname';
   static const waitForLoadingKey = 'videoTogetherWaitForLoading';
   static const passwordProtectedKey = 'videoTogetherPasswordProtected';
   static const syncThresholdKey = 'videoTogetherSyncThreshold';
   static const lastRoomNameKey = 'videoTogetherLastRoomName';
-  static const hidePlayerMenuEntryKey = 'videoTogetherHidePlayerMenuEntry';
+  // Keep the serialized key so existing exports retain the user's choice.
+  static const hidePlayerEntryWhenNotInRoomKey =
+      'videoTogetherHidePlayerMenuEntry';
   static const defaultSyncThreshold = 0.5;
+  static const defaultMarkPiliPlusNickname = true;
+  static const defaultHidePlayerEntryWhenNotInRoom = true;
 
   static String get server => GStorage.setting.get(
     serverKey,
@@ -31,6 +36,10 @@ abstract final class VideoTogetherPreferences {
   static bool get bidirectionalSync =>
       GStorage.setting.get(bidirectionalSyncKey, defaultValue: true);
 
+  static bool get markPiliPlusNickname => GStorage.setting.get(
+    markPiliPlusNicknameKey,
+    defaultValue: defaultMarkPiliPlusNickname,
+  );
   static bool get waitForLoading =>
       GStorage.setting.get(waitForLoadingKey, defaultValue: true);
 
@@ -45,6 +54,8 @@ abstract final class VideoTogetherPreferences {
   static String get lastRoomName =>
       GStorage.setting.get(lastRoomNameKey, defaultValue: '');
 
-  static bool get hidePlayerMenuEntry =>
-      GStorage.setting.get(hidePlayerMenuEntryKey, defaultValue: false);
+  static bool get hidePlayerEntryWhenNotInRoom => GStorage.setting.get(
+    hidePlayerEntryWhenNotInRoomKey,
+    defaultValue: defaultHidePlayerEntryWhenNotInRoom,
+  );
 }

@@ -139,7 +139,8 @@ class _VideoTogetherPageState extends State<VideoTogetherPage> {
         const SizedBox(height: 24),
         const Text(
           '创建房间后可再打开任意 B 站视频；加入者会自动打开房间当前的投稿或番剧。'
-          '双向同步默认允许任一成员通过本地操作接管；与官方插件共用时可在设置中关闭，普通成员将只跟随。'
+          '双向同步默认允许任一成员通过本地操作接管；关闭后，未知或官方成员只跟随，'
+          '通过文字消息确认全为 PiliPlus 时仍自动允许双向控制。'
           '当前不支持 VideoTogether 的语音和 EasyShare 媒体中继。',
         ),
       ],
@@ -147,11 +148,15 @@ class _VideoTogetherPageState extends State<VideoTogetherPage> {
   }
 
   Widget _buildRoom(BuildContext context) {
+    _session.preferenceRevision.value;
     final room = _session.room.value;
     final roleText = _session.role.value == VideoTogetherRole.host
         ? '房主'
         : '成员';
     final controlText = _session.isControlling.value ? '控制中' : '跟随中';
+    final piliPlusCountText = VideoTogetherPreferences.markPiliPlusNickname
+        ? '（PiliPlus 用户：${_session.piliPlusMemberCount.value}）'
+        : '';
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
@@ -174,7 +179,7 @@ class _VideoTogetherPageState extends State<VideoTogetherPage> {
                 ),
                 const SizedBox(height: 8),
                 Text('连接：${_connectionLabel(_session.connectionState.value)}'),
-                Text('在线成员：${room?.memberCount ?? '-'}'),
+                Text('在线成员：${room?.memberCount ?? '-'}$piliPlusCountText'),
                 if (room?.videoTitle.isNotEmpty == true)
                   Text('当前视频：${room!.videoTitle}'),
                 if (room?.url.isNotEmpty == true)
