@@ -154,6 +154,15 @@ Android Release 编译在 6 分 59 秒内完成，Release 发布步骤明确跳�
   请求的响应不能覆盖后续切换。兼容模式下从未持有控制权的普通成员仍保持只读。
 - 新增纯逻辑策略测试，覆盖曾持有控制权者在兼容模式下重新接管、开启双向控制的成员接管，以及兼容模式
   普通成员拒绝接管。VideoTogether 定向 44 项和全仓 46 项测试通过；本轮修改文件定向静态分析为 0 问题。
+- 修复提交 `e38e6e3d` 推送后触发 Android-only、空 tag 的 GitHub Actions
+  [运行 `35614906952`](https://github.com/Well2333/PiliPlus/actions/runs/35614906952)。首次尝试因第三方
+  x86_64 libmpv JAR 下载返回 HTTP 504 失败；仅重跑失败任务后于 7 分 11 秒内成功。
+- 工作流仅执行 Android，iOS、macOS、Windows、Linux 与 Release 步骤全部跳过；构建命令明确传入
+  `--android-project-arg ci=1`，三个 ABI 产物均已上传。
+- arm64-v8a、armeabi-v7a、x86_64 Artifact 摘要分别为
+  `sha256:0ad4ae3a698b2173d12b757e08557119576a53876654c11b56e6ae668eb92fc4`、
+  `sha256:91ef4a7a599d832023b777e9829b08a591ca646f931b4984d180fd258e0a3129` 和
+  `sha256:09173954169f6c2e9a08fb266ab7addc2b5d3f83047bf07e6263cadc9b788810`。
 - 仍需用两个真实客户端验证“A 控制 → B 抢控 → A 切换分 P/剧集/其他视频”的服务端写权交接和成员跳转。
 
 ## 仍需真实设备验证
