@@ -1385,6 +1385,9 @@ class VideoDetailController extends GetxController
   }
 
   void onReset({bool isStein = false}) {
+    if (!isFileSource) {
+      VideoTogetherSession.instance.beginLocalMediaChange();
+    }
     _videoLoadGeneration += 1;
     plPlayerController.invalidatePendingDataSource();
     _videoTogetherMediaReady = false;

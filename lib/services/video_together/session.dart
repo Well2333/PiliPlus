@@ -52,6 +52,7 @@ final class VideoTogetherSession with WidgetsBindingObserver {
   int _startAttempt = 0;
   int _generation = 0;
   int _roomRevision = 0;
+  int _localMediaChangeRevision = 0;
   int? _tickGeneration;
   int? _reconnectGeneration;
   int? _syncGeneration;
@@ -84,6 +85,13 @@ final class VideoTogetherSession with WidgetsBindingObserver {
   bool get _reconnectRunning => _reconnectGeneration == _generation;
   bool get _syncRunning => _syncGeneration == _generation;
   bool get _applyingRemoteState => _applyingGeneration == _generation;
+  bool get _prioritizesLocalMediaChange =>
+      VideoTogetherSyncPolicy.shouldPrioritizeLocalMediaChange(
+        pendingMediaChange: _pendingLocalMediaChange,
+        hasHeldControl: _hasHeldControl,
+        bidirectionalSync: VideoTogetherPreferences.bidirectionalSync,
+      );
+
   String get roomName => _roomName;
   String get server => _server;
   String get currentPassword => _password;
@@ -125,6 +133,31 @@ final class VideoTogetherSession with WidgetsBindingObserver {
     refreshPreferences();
   }
 
+  void beginLocalMediaChange() {
+    if (!_running || !_sessionReady) return;
+    _pendingLocalMediaChange = true;
+    _localMediaChangeRevision += 1;
+
+    if (!_prioritizesLocalMediaChange) {
+      _pendingLocalMediaChange = false;
+      return;
+    }
+
+    _remoteCommandEpoch += 1;
+    _roomRevision += 1;
+    _pendingFollowerSync = null;
+    _expectedRemoteUrl = null;
+    _expectedRemoteAt = 0;
+    _remotePlaybackSynchronizer.reset();
+    if (!isControlling.value) {
+      _controlUserId = _newUserId();
+      role.value = VideoTogetherRole.host;
+      isControlling.value = true;
+      _hasHeldControl = true;
+    }
+    unawaited(_tick(_generation));
+  }
+
   String _buildMessageSender() {
     final nickname = VideoTogetherPreferences.nickname.trim();
     return nickname.isEmpty ? 'PiliPlus 用户' : nickname;
@@ -148,7 +181,7 @@ final class VideoTogetherSession with WidgetsBindingObserver {
       _pendingLocalMediaChange = false;
       suppressLocalChanges();
     } else if (_running && _sessionReady && mediaChanged) {
-      _pendingLocalMediaChange = true;
+      beginLocalMediaChange();
     }
     _capturePlaybackSnapshot();
     if (_running) unawaited(_tick(_generation));
@@ -293,6 +326,7 @@ final class VideoTogetherSession with WidgetsBindingObserver {
     _lastMemberUpdateAt = 0;
     _ignoreLocalChangesUntil = 0;
     _pendingLocalMediaChange = false;
+    _localMediaChangeRevision = 0;
     _memberLoadingStateChanged = false;
     _resumeAfterLoading = false;
     _hasHeldControl = false;
@@ -376,6 +410,8 @@ final class VideoTogetherSession with WidgetsBindingObserver {
         role.value = VideoTogetherRole.host;
         isControlling.value = true;
         _hasHeldControl = true;
+      } else if (_prioritizesLocalMediaChange) {
+        unawaited(_tick(_generation));
       } else {
         if (isControlling.value) {
           _remotePlaybackSynchronizer.reset();
@@ -602,15 +638,18 @@ final class VideoTogetherSession with WidgetsBindingObserver {
         _pendingLocalMediaChange = false;
       }
 
-      if (shouldTakeControl && playback?.isReady == true && _media != null) {
+      if (shouldTakeControl && _media != null) {
+        final localMediaChangeRevision = _localMediaChangeRevision;
         if (!isControlling.value) {
           _controlUserId = _newUserId();
           role.value = VideoTogetherRole.host;
           isControlling.value = true;
           _hasHeldControl = true;
         }
-        _pendingLocalMediaChange = false;
         await _sendRoomUpdate(generation);
+        if (_localMediaChangeRevision == localMediaChangeRevision) {
+          _pendingLocalMediaChange = false;
+        }
       } else if (isControlling.value) {
         if (_memberLoadingStateChanged || now - _lastRoomUpdateAt >= 1.8) {
           _memberLoadingStateChanged = false;
@@ -938,16 +977,18 @@ final class VideoTogetherSession with WidgetsBindingObserver {
       forceMemberUpdate: forceMemberUpdate,
       restartPlayback: restartPlayback,
     );
+    if (!_canRun(generation) ||
+        isControlling.value ||
+        _prioritizesLocalMediaChange) {
+      return Future<void>.value();
+    }
+
     if (_syncRunning) {
       _pendingFollowerSync = request.mergeFlags(
         _pendingFollowerSync ?? _activeFollowerSync,
       );
       return _syncCompleter?.future ?? Future<void>.value();
     }
-    if (!_canRun(generation) || isControlling.value) {
-      return Future<void>.value();
-    }
-
     final completer = Completer<void>();
     _syncGeneration = generation;
     _syncCompleter = completer;
@@ -961,7 +1002,9 @@ final class VideoTogetherSession with WidgetsBindingObserver {
   ) async {
     var request = initialRequest;
     try {
-      while (_canRun(request.generation) && !isControlling.value) {
+      while (_canRun(request.generation) &&
+          !isControlling.value &&
+          !_prioritizesLocalMediaChange) {
         _pendingFollowerSync = null;
         _activeFollowerSync = request;
         try {
@@ -1036,7 +1079,8 @@ final class VideoTogetherSession with WidgetsBindingObserver {
   bool _isSyncRequestCurrent(_FollowerSyncRequest request) =>
       _canRun(request.generation) &&
       request.revision == _roomRevision &&
-      !isControlling.value;
+      !isControlling.value &&
+      !_prioritizesLocalMediaChange;
 
   void _queueFollowerSync(VideoTogetherRoom currentRoom, int revision) {
     unawaited(

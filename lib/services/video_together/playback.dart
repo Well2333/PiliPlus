@@ -145,6 +145,17 @@ abstract final class VideoTogetherSyncPolicy {
     required bool bidirectionalSync,
   }) => bidirectionalSync || hasHeldControl;
 
+  static bool shouldPrioritizeLocalMediaChange({
+    required bool pendingMediaChange,
+    required bool hasHeldControl,
+    required bool bidirectionalSync,
+  }) =>
+      pendingMediaChange &&
+      canTakeControl(
+        hasHeldControl: hasHeldControl,
+        bidirectionalSync: bidirectionalSync,
+      );
+
   static double correctionThreshold({
     required bool roomPaused,
     required double playingThreshold,

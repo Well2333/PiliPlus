@@ -334,6 +334,33 @@ void main() {
       );
     });
 
+    test('a local media change retakes control for a previous controller', () {
+      expect(
+        VideoTogetherSyncPolicy.shouldPrioritizeLocalMediaChange(
+          pendingMediaChange: true,
+          hasHeldControl: true,
+          bidirectionalSync: false,
+        ),
+        isTrue,
+      );
+      expect(
+        VideoTogetherSyncPolicy.shouldPrioritizeLocalMediaChange(
+          pendingMediaChange: true,
+          hasHeldControl: false,
+          bidirectionalSync: true,
+        ),
+        isTrue,
+      );
+      expect(
+        VideoTogetherSyncPolicy.shouldPrioritizeLocalMediaChange(
+          pendingMediaChange: true,
+          hasHeldControl: false,
+          bidirectionalSync: false,
+        ),
+        isFalse,
+      );
+    });
+
     test('uses precise correction while the room is paused', () {
       expect(
         VideoTogetherSyncPolicy.correctionThreshold(
