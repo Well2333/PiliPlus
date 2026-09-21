@@ -136,6 +136,12 @@ Android Release 编译在 6 分 59 秒内完成，Release 发布步骤明确跳�
 - VideoTogether 定向 43 项测试通过，其中协议/播放/入口与恢复策略 38 项、WebSocket 所有权与故障注入
   5 项；全仓 45 项测试通过。
 - 本轮修改文件定向静态分析为 0 问题；全仓静态分析无 error/warning，仍只有上游既存 37 条 info。
+- 功能提交 `520408eb` 推送后，Android-only、空 tag 的 GitHub Actions 运行
+  [`35563150878`](https://github.com/Well2333/PiliPlus/actions/runs/35563150878) 在 5 分 25 秒内成功；
+  三种 ABI 均上传，`Release` 发布步骤与 iOS、Windows、Linux、macOS 任务明确跳过，未创建 Release。
+- arm64-v8a 产物实测 applicationId 为 `com.example.piliplus.dev.ci`、版本为
+  `2.1.4-520408ebe+5409`，APK v2 签名有效且证书 SHA-256 与固定开发证书一致；APK SHA-256 为
+  `2b3df72128d270de45deed8ab97719fa34fbca39c98ce55be274980e88fdaeb2`，与 Artifact 摘要一致。
 - 房间页开关布局、设置跨重启保留和混合官方客户端的实际控制体验仍需按下方清单真机验收。
 
 ## 仍需真实设备验证
