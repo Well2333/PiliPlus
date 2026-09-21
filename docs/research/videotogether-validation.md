@@ -114,6 +114,14 @@ Android Release 编译在 6 分 59 秒内完成，Release 发布步骤明确跳�
   覆盖后缀编码与隐藏、重复默认昵称的唯一会话计数、成员数变化清空、兼容模式自动绕过和入口可见性策略。
 - 全仓 49 项测试通过；所有本轮接入点定向静态分析为 0 问题，全仓静态分析无 error/warning，仍只有上游
   既存的 37 条 info。
+- 功能提交 `2d9a3ef2` 推送后，以 Android-only、空 tag 参数触发 GitHub Actions 运行
+  [`35553126147`](https://github.com/Well2333/PiliPlus/actions/runs/35553126147)：Android Release 编译在
+  7 分 02 秒内完成，`Release` 发布步骤以及 iOS、Windows、Linux、macOS 任务均明确跳过，未创建 tag 或
+  GitHub Release；三种 Android ABI 产物均上传成功。
+- 下载的 arm64-v8a 产物实测 applicationId 为 `com.example.piliplus.dev.ci`、显示名为
+  `PiliPlus dev CI`、版本为 `2.1.4-2d9a3ef22+5407`，APK v2 签名有效且证书 SHA-256 与上述固定开发
+  证书一致；APK SHA-256 为
+  `1033e5c8b64902ff430747ad0adf56120f2a993816969186ea90281b9551b826`，与 GitHub Artifact 摘要一致。
 - 操作栏实际布局、设置即时刷新、双机文字消息识别和混合官方客户端行为仍需按下方清单真机验收。
 
 ## 仍需真实设备验证
