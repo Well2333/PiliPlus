@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:PiliPlus/services/video_together/client.dart';
 import 'package:PiliPlus/services/video_together/models.dart';
+import 'package:PiliPlus/services/video_together/navigation.dart';
 import 'package:PiliPlus/services/video_together/playback.dart';
 import 'package:PiliPlus/services/video_together/preferences.dart';
 import 'package:PiliPlus/services/video_together/protocol.dart';
@@ -11,8 +12,6 @@ import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:flutter/widgets.dart';
 import 'package:get/get.dart';
 import 'package:uuid/v4.dart';
-
-typedef VideoTogetherOpenVideo = Future<bool> Function(String url);
 
 final class VideoTogetherSession with WidgetsBindingObserver {
   VideoTogetherSession._();
@@ -33,6 +32,7 @@ final class VideoTogetherSession with WidgetsBindingObserver {
   VideoTogetherMedia? _media;
   VideoTogetherMedia? _lastMedia;
   VideoTogetherOpenVideo? _openVideo;
+  VoidCallback? _cancelNavigation;
   VideoTogetherPlaybackSnapshot? _lastPlaybackSnapshot;
   Timer? _timer;
   // ignore: cancel_subscriptions
@@ -43,6 +43,7 @@ final class VideoTogetherSession with WidgetsBindingObserver {
   String _memberUserId = '';
   String _controlUserId = '';
   String? _expectedRemoteUrl;
+  String? _deferredRemoteUrl;
   String _messageSender = '';
   double _expectedRemoteAt = 0;
   double? _pendingRoomUpdateTime;
@@ -51,6 +52,7 @@ final class VideoTogetherSession with WidgetsBindingObserver {
   double _ignoreLocalChangesUntil = 0;
   int _startAttempt = 0;
   int _generation = 0;
+  int _navigationRequestRevision = 0;
   int _roomRevision = 0;
   int _localMediaChangeRevision = 0;
   int? _tickGeneration;
@@ -119,13 +121,29 @@ final class VideoTogetherSession with WidgetsBindingObserver {
     }
   }
 
-  void configureNavigation(VideoTogetherOpenVideo callback) {
+  void configureNavigation(
+    VideoTogetherOpenVideo callback, {
+    VoidCallback? onCancel,
+  }) {
     _openVideo = callback;
+    _cancelNavigation = onCancel;
   }
 
   void refreshPreferences() {
+    _cancelPendingNavigation();
     preferenceRevision.value += 1;
-    if (_running) _messageSender = _buildMessageSender();
+    if (_running) {
+      _messageSender = _buildMessageSender();
+      unawaited(_tick(_generation));
+    }
+  }
+
+  void _cancelPendingNavigation({bool clearDeferred = true}) {
+    _navigationRequestRevision += 1;
+    _expectedRemoteUrl = null;
+    _expectedRemoteAt = 0;
+    if (clearDeferred) _deferredRemoteUrl = null;
+    _cancelNavigation?.call();
   }
 
   Future<void> setBidirectionalSync(bool enabled) async {
@@ -146,8 +164,7 @@ final class VideoTogetherSession with WidgetsBindingObserver {
     _remoteCommandEpoch += 1;
     _roomRevision += 1;
     _pendingFollowerSync = null;
-    _expectedRemoteUrl = null;
-    _expectedRemoteAt = 0;
+    _cancelPendingNavigation();
     _remotePlaybackSynchronizer.reset();
     if (!isControlling.value) {
       _controlUserId = _newUserId();
@@ -178,6 +195,7 @@ final class VideoTogetherSession with WidgetsBindingObserver {
     if (openedExpectedRemote) {
       _expectedRemoteUrl = null;
       _expectedRemoteAt = 0;
+      _deferredRemoteUrl = null;
       _pendingLocalMediaChange = false;
       suppressLocalChanges();
     } else if (_running && _sessionReady && mediaChanged) {
@@ -286,6 +304,7 @@ final class VideoTogetherSession with WidgetsBindingObserver {
   Future<void> _leave({required bool clearError}) async {
     _running = false;
     _sessionReady = false;
+    _cancelPendingNavigation();
     _generation += 1;
     _roomRevision += 1;
     _timer?.cancel();
@@ -396,6 +415,11 @@ final class VideoTogetherSession with WidgetsBindingObserver {
 
   void _onRoom(String method, VideoTogetherRoom value) {
     final previousRoom = room.value;
+    final roomMediaChanged =
+        previousRoom != null &&
+        previousRoom.url != value.url &&
+        !_isSameMedia(previousRoom.url, value.url);
+    if (roomMediaChanged) _cancelPendingNavigation();
     final isOwnUpdate =
         method == VideoTogetherProtocol.roomUpdate &&
         _recentRoomUpdateTimes.any(
@@ -1042,9 +1066,7 @@ final class VideoTogetherSession with WidgetsBindingObserver {
 
     final sameMedia =
         _playback != null && _isSameMedia(_media?.url, request.room.url);
-    if (!sameMedia &&
-        request.room.url.isNotEmpty &&
-        VideoTogetherPreferences.autoOpenVideo) {
+    if (!sameMedia && request.room.url.isNotEmpty) {
       await _navigateTo(request.room.url);
       if (!_isSyncRequestCurrent(request)) return;
     }
@@ -1172,28 +1194,57 @@ final class VideoTogetherSession with WidgetsBindingObserver {
       revision == _roomRevision;
 
   Future<void> _navigateTo(String url, {bool force = false}) async {
+    final navigationDeferred =
+        _deferredRemoteUrl != null && _isSameMedia(_deferredRemoteUrl, url);
+    if (!force && navigationDeferred) return;
+
     final navigationPending =
         _expectedRemoteUrl != null &&
         _isSameMedia(_expectedRemoteUrl, url) &&
         _monotonicNow - _expectedRemoteAt < 8;
     if (!force && navigationPending) return;
+
     final openVideo = _openVideo;
     if (openVideo == null) {
       errorMessage.value = '未配置视频跳转处理器';
       return;
     }
+
+    final generation = _generation;
+    final requestRevision = ++_navigationRequestRevision;
     _expectedRemoteUrl = url;
     _expectedRemoteAt = _monotonicNow;
     try {
-      final handled = await openVideo(url);
-      if (!handled) {
-        _expectedRemoteUrl = null;
-        _expectedRemoteAt = 0;
-        errorMessage.value = 'PiliPlus 暂不支持房间当前页面：$url';
+      final result = await openVideo(url, force: force);
+      if (!_isCurrent(generation) ||
+          requestRevision != _navigationRequestRevision) {
+        return;
+      }
+      switch (result) {
+        case VideoTogetherOpenVideoResult.opened:
+          _deferredRemoteUrl = null;
+        case VideoTogetherOpenVideoResult.deferred:
+          _expectedRemoteUrl = null;
+          _expectedRemoteAt = 0;
+          _deferredRemoteUrl = null;
+        case VideoTogetherOpenVideoResult.dismissed:
+          _expectedRemoteUrl = null;
+          _expectedRemoteAt = 0;
+          _deferredRemoteUrl = url;
+        case VideoTogetherOpenVideoResult.unsupported:
+          _expectedRemoteUrl = null;
+          _expectedRemoteAt = 0;
+          _deferredRemoteUrl = null;
+          errorMessage.value = 'PiliPlus 暂不支持房间当前页面：$url';
       }
     } catch (error) {
+      if (!_isCurrent(generation) ||
+          requestRevision != _navigationRequestRevision) {
+        return;
+      }
       _expectedRemoteUrl = null;
       _expectedRemoteAt = 0;
+      _deferredRemoteUrl = null;
       errorMessage.value = '打开房间视频失败：${_friendlyError(error)}';
     }
   }

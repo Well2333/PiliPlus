@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:PiliPlus/services/video_together/entry_policy.dart';
 import 'package:PiliPlus/services/video_together/models.dart';
+import 'package:PiliPlus/services/video_together/navigation.dart';
 import 'package:PiliPlus/services/video_together/playback.dart';
 import 'package:PiliPlus/services/video_together/preferences.dart';
 import 'package:PiliPlus/services/video_together/protocol.dart';
@@ -35,6 +36,113 @@ void main() {
           hideWhenNotInRoom: false,
         ),
         isTrue,
+      );
+    });
+  });
+
+  group('VideoTogetherNavigationPolicy', () {
+    test('uses countdown confirmation by default', () {
+      expect(
+        VideoTogetherPreferences.defaultNavigationMode,
+        VideoTogetherNavigationMode.countdown,
+      );
+      expect(
+        VideoTogetherNavigationPolicy.actionFor(
+          mode: VideoTogetherPreferences.defaultNavigationMode,
+          isVideoPage: false,
+        ),
+        VideoTogetherNavigationAction.confirm,
+      );
+    });
+
+    test('maps all direct modes for video and non-video pages', () {
+      expect(
+        VideoTogetherNavigationPolicy.actionFor(
+          mode: VideoTogetherNavigationMode.always,
+          isVideoPage: false,
+        ),
+        VideoTogetherNavigationAction.open,
+      );
+      expect(
+        VideoTogetherNavigationPolicy.actionFor(
+          mode: VideoTogetherNavigationMode.videoPageOnly,
+          isVideoPage: true,
+        ),
+        VideoTogetherNavigationAction.open,
+      );
+      expect(
+        VideoTogetherNavigationPolicy.actionFor(
+          mode: VideoTogetherNavigationMode.videoPageOnly,
+          isVideoPage: false,
+        ),
+        VideoTogetherNavigationAction.defer,
+      );
+      expect(
+        VideoTogetherNavigationPolicy.actionFor(
+          mode: VideoTogetherNavigationMode.never,
+          isVideoPage: true,
+        ),
+        VideoTogetherNavigationAction.defer,
+      );
+      expect(
+        VideoTogetherNavigationPolicy.actionFor(
+          mode: VideoTogetherNavigationMode.countdown,
+          isVideoPage: true,
+        ),
+        VideoTogetherNavigationAction.confirm,
+      );
+    });
+
+    test('manual room action bypasses every automatic mode', () {
+      for (final mode in VideoTogetherNavigationMode.values) {
+        expect(
+          VideoTogetherNavigationPolicy.actionFor(
+            mode: mode,
+            isVideoPage: false,
+            force: true,
+          ),
+          VideoTogetherNavigationAction.open,
+        );
+      }
+    });
+  });
+
+  group('VideoTogetherNavigationPreferenceMigration', () {
+    test('maps legacy enabled and disabled values', () {
+      expect(
+        VideoTogetherPreferences.resolveNavigationMode(
+          legacyAutoOpen: true,
+        ),
+        VideoTogetherNavigationMode.always,
+      );
+      expect(
+        VideoTogetherPreferences.resolveNavigationMode(
+          legacyAutoOpen: false,
+        ),
+        VideoTogetherNavigationMode.never,
+      );
+    });
+
+    test('new value wins and invalid values fall back safely', () {
+      expect(
+        VideoTogetherPreferences.resolveNavigationMode(
+          storedMode: 'videoPageOnly',
+          legacyAutoOpen: false,
+        ),
+        VideoTogetherNavigationMode.videoPageOnly,
+      );
+      expect(
+        VideoTogetherPreferences.resolveNavigationMode(
+          storedMode: VideoTogetherNavigationMode.countdown.index,
+          legacyAutoOpen: false,
+        ),
+        VideoTogetherNavigationMode.countdown,
+      );
+      expect(
+        VideoTogetherPreferences.resolveNavigationMode(
+          storedMode: 'removed-mode',
+        ),
+        VideoTogetherNavigationMode.countdown,
       );
     });
   });

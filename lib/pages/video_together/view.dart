@@ -1,9 +1,9 @@
 import 'package:PiliPlus/common/widgets/scaffold/simple_scaffold.dart';
+import 'package:PiliPlus/pages/video_together/navigation_presenter.dart';
 import 'package:PiliPlus/pages/video_together/settings_view.dart';
 import 'package:PiliPlus/services/video_together/models.dart';
 import 'package:PiliPlus/services/video_together/preferences.dart';
 import 'package:PiliPlus/services/video_together/session.dart';
-import 'package:PiliPlus/utils/app_scheme.dart';
 import 'package:PiliPlus/utils/storage.dart';
 import 'package:flutter_smart_dialog/flutter_smart_dialog.dart';
 import 'package:get/get.dart';
@@ -33,11 +33,8 @@ class _VideoTogetherPageState extends State<VideoTogetherPage> {
     _passwordController = TextEditingController(text: _session.currentPassword);
     _messageController = TextEditingController();
     _session.configureNavigation(
-      (url) => PiliScheme.routePushFromUrl(
-        url,
-        selfHandle: true,
-        off: Get.currentRoute == '/videoV',
-      ),
+      VideoTogetherNavigationPresenter.open,
+      onCancel: VideoTogetherNavigationPresenter.cancel,
     );
   }
 
@@ -138,7 +135,8 @@ class _VideoTogetherPageState extends State<VideoTogetherPage> {
         ],
         const SizedBox(height: 24),
         const Text(
-          '创建房间后可再打开任意 B 站视频；加入者会自动打开房间当前的投稿或番剧。'
+          '创建房间后可再打开任意 B 站视频；加入者会按设置处理房间当前的投稿或番剧。'
+          '默认弹出确认框，并在 5 秒倒计时结束后进入视频。'
           '加入房间后可在房间页面选择是否允许双向同步控制。'
           '与官方浏览器插件或不支持控制权交接的客户端同房时应关闭该功能。'
           '当前不支持 VideoTogether 的语音和 EasyShare 媒体中继。',

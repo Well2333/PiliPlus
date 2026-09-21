@@ -1,4 +1,6 @@
 import 'package:PiliPlus/common/widgets/scaffold/simple_scaffold.dart';
+import 'package:PiliPlus/pages/setting/widgets/select_dialog.dart';
+import 'package:PiliPlus/services/video_together/navigation.dart';
 import 'package:PiliPlus/services/video_together/preferences.dart';
 import 'package:PiliPlus/services/video_together/protocol.dart';
 import 'package:PiliPlus/services/video_together/session.dart';
@@ -21,7 +23,7 @@ class VideoTogetherSettingsPage extends StatefulWidget {
 class _VideoTogetherSettingsPageState extends State<VideoTogetherSettingsPage> {
   late final TextEditingController _serverController;
   late final TextEditingController _nicknameController;
-  late bool _autoOpenVideo;
+  late VideoTogetherNavigationMode _navigationMode;
   late bool _syncPlaybackRate;
   late bool _waitForLoading;
   late bool _passwordProtected;
@@ -37,7 +39,7 @@ class _VideoTogetherSettingsPageState extends State<VideoTogetherSettingsPage> {
     _nicknameController = TextEditingController(
       text: VideoTogetherPreferences.nickname,
     );
-    _autoOpenVideo = VideoTogetherPreferences.autoOpenVideo;
+    _navigationMode = VideoTogetherPreferences.navigationMode;
     _syncPlaybackRate = VideoTogetherPreferences.syncPlaybackRate;
     _waitForLoading = VideoTogetherPreferences.waitForLoading;
     _passwordProtected = VideoTogetherPreferences.passwordProtected;
@@ -105,12 +107,15 @@ class _VideoTogetherSettingsPageState extends State<VideoTogetherSettingsPage> {
           onChanged: (value) =>
               setState(() => _hidePlayerEntryWhenNotInRoom = value),
         ),
-        SwitchListTile(
+        ListTile(
           contentPadding: EdgeInsets.zero,
-          title: const Text('自动打开房间视频'),
-          subtitle: const Text('加入后自动打开支持的 B 站投稿或番剧页面'),
-          value: _autoOpenVideo,
-          onChanged: (value) => setState(() => _autoOpenVideo = value),
+          title: const Text('房间视频打开方式'),
+          subtitle: Text(
+            '${_navigationModeLabel(_navigationMode)}：'
+            '${_navigationModeDescription(_navigationMode)}',
+          ),
+          trailing: const Icon(Icons.chevron_right),
+          onTap: _selectNavigationMode,
         ),
         SwitchListTile(
           contentPadding: EdgeInsets.zero,
@@ -198,7 +203,10 @@ class _VideoTogetherSettingsPageState extends State<VideoTogetherSettingsPage> {
         VideoTogetherPreferences.nicknameKey: nickname.isEmpty
             ? 'PiliPlus 用户'
             : nickname,
-        VideoTogetherPreferences.autoOpenVideoKey: _autoOpenVideo,
+        VideoTogetherPreferences.navigationModeKey: _navigationMode.name,
+        // Preserve a conservative value for older builds that only know this key.
+        VideoTogetherPreferences.autoOpenVideoKey:
+            _navigationMode == VideoTogetherNavigationMode.always,
         VideoTogetherPreferences.syncPlaybackRateKey: _syncPlaybackRate,
         VideoTogetherPreferences.waitForLoadingKey: _waitForLoading,
         VideoTogetherPreferences.passwordProtectedKey: _passwordProtected,
@@ -213,4 +221,46 @@ class _VideoTogetherSettingsPageState extends State<VideoTogetherSettingsPage> {
       SmartDialog.showToast(error.toString());
     }
   }
+
+  Future<void> _selectNavigationMode() async {
+    final result = await showDialog<VideoTogetherNavigationMode>(
+      context: context,
+      builder: (context) => SelectDialog<VideoTogetherNavigationMode>(
+        title: '房间视频打开方式',
+        value: _navigationMode,
+        values: _navigationModeOptions,
+        subtitleBuilder: (_, index) => Text(
+          _navigationModeDescription(_navigationModeOptions[index].$1),
+        ),
+      ),
+    );
+    if (result != null && mounted) {
+      setState(() => _navigationMode = result);
+    }
+  }
+
+  static const List<(VideoTogetherNavigationMode, String)>
+  _navigationModeOptions = [
+    (VideoTogetherNavigationMode.always, '始终自动进入'),
+    (VideoTogetherNavigationMode.videoPageOnly, '仅在视频页自动切换'),
+    (VideoTogetherNavigationMode.never, '从不自动进入'),
+    (VideoTogetherNavigationMode.countdown, '倒计时弹窗确认（默认）'),
+  ];
+
+  static String _navigationModeLabel(VideoTogetherNavigationMode mode) =>
+      switch (mode) {
+        VideoTogetherNavigationMode.always => '始终自动进入',
+        VideoTogetherNavigationMode.videoPageOnly => '仅在视频页自动切换',
+        VideoTogetherNavigationMode.never => '从不自动进入',
+        VideoTogetherNavigationMode.countdown => '倒计时弹窗确认',
+      };
+
+  static String _navigationModeDescription(
+    VideoTogetherNavigationMode mode,
+  ) => switch (mode) {
+    VideoTogetherNavigationMode.always => '房间切换视频后立即进入',
+    VideoTogetherNavigationMode.videoPageOnly => '只在当前已打开视频页时自动切换',
+    VideoTogetherNavigationMode.never => '仅从房间页手动打开',
+    VideoTogetherNavigationMode.countdown => '弹窗确认，5 秒后自动进入',
+  };
 }
