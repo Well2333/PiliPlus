@@ -177,6 +177,16 @@ Android Release 编译在 6 分 59 秒内完成，Release 发布步骤明确跳�
 - VideoTogether 定向 49 项测试和全仓 51 项测试通过；新增纯逻辑测试覆盖默认值、四档映射、仅视频页条件、
   手动强制打开，以及旧布尔值和异常持久化值迁移。
 - 本轮修改文件定向静态分析为 0 问题；全仓静态分析无 error/warning，只有上游既存的 37 条 info。
+- 功能提交 `10ef53f8` 推送后，Android-only、空 tag 的 GitHub Actions
+  [运行 `35621623928`](https://github.com/Well2333/PiliPlus/actions/runs/35621623928) 在 6 分 50 秒内
+  成功。Android Release APK 编译和三个 ABI 上传完成；Release、Dev APK、iOS、macOS、Windows、Linux
+  步骤均明确跳过，未创建 tag 或 GitHub Release。
+- arm64-v8a、armeabi-v7a、x86_64 Artifact 摘要分别为
+  `sha256:daa5f9bece88a603f5b9da3a42681d7ee3bee8a711132a0b74b276660b684cf2`、
+  `sha256:a5a1098c2e1eb8f8e40364078e955b48f219e3d9a4a099e2a2db7dad8ebfb103` 和
+  `sha256:a1ff13f296a2f92f0fbdca97f0ccd51208f713cf89b19e24ec6d05aeaccd4f26`。
+- arm64 产物的二进制清单包名为 `com.example.piliplus.dev.ci`；签名证书 SHA-256 仍为
+  `F0:64:C9:F8:88:E2:BE:3D:F4:0C:AA:35:EB:60:AC:3A:83:8A:51:B7:2E:8B:FE:A5:17:5B:07:33:67:C4:72:54`。
 - 自动化环境未执行真实 Android 导航栈和触摸交互，倒计时自动进入、按钮取消、弹窗显示内容以及房间切换
   时的视觉行为仍列入下方真机验收。
 
