@@ -190,6 +190,22 @@ Android Release 编译在 6 分 59 秒内完成，Release 发布步骤明确跳�
 - 自动化环境未执行真实 Android 导航栈和触摸交互，倒计时自动进入、按钮取消、弹窗显示内容以及房间切换
   时的视觉行为仍列入下方真机验收。
 
+## 2026-09-22 上游同步与 Win x64 CI 验证
+
+- merge commit `5265bead` 已完整纳入 upstream/main 的 `682ada6c`、`e4185e5b`、`7abf4e7b` 和
+  `5c469360`；分支保留普通 merge 历史，没有改写已发布开发提交。
+- 合并上游播放器状态重构时，保留其公共 `seek()` API，并保留 VideoTogether 对换源代际、缓冲等待超时、
+  duration 等待超时和异步 seek 完成语义的保护。
+- 合并涉及的 Dart 文件格式化无变更；全仓 51 项测试通过，播放器、视频页、音频服务与 VideoTogether
+  接入点的定向静态分析为 0 问题。
+- 提交 `4023d7bb` 上的无 tag GitHub Actions
+  [运行 `35676584619`](https://github.com/Well2333/PiliPlus/actions/runs/35676584619) 同时执行 Android 与
+  Win x64 并成功；iOS、macOS 与 Linux 明确跳过。
+- 三种 Android ABI、Windows x64 setup EXE（33,393,223 bytes）和 portable ZIP（45,107,745 bytes）
+  共五个 artifact 均上传成功，且都指向 head SHA `4023d7bb62a42481f94b6b7d3a25066319cd3c8e`。
+- Android 与 Windows 的 Release 步骤均明确跳过，未使用 tag、未创建或修改 GitHub Release。当前 Linux
+  自动化环境无法直接启动 Windows GUI 产物，运行时与安装体验仍需 Windows x64 实机验收。
+
 ## 仍需真实设备验证
 
 - “我的”页不同宽度、横竖屏和登录状态下入口是否无溢出并符合预期位置；
