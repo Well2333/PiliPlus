@@ -204,3 +204,12 @@ room.currentTime + (serverNow - room.lastUpdateClientTime) * room.playbackRate
 - 证书从 `SIGN_KEYSTORE_BASE64`、`KEYSTORE_PASSWORD`、`KEY_ALIAS` 和 `KEY_PASSWORD`
   GitHub Actions Secrets 注入；私钥和口令禁止提交。
 - 本地忽略文件 `android/app/key.jks` 和 `android/key.properties` 是唯一等价备份，应离线保存。
+
+## Fork 开发 CI 约定
+
+- `videotogether` 分支的无 tag 开发 CI 必须同时启用 `build_android` 和 `build_win_x64`；其他平台仍按需
+  启用，避免无关构建扩大验证时间与资源消耗。
+- Android 与 Win x64 的生效条件保持一致：上游仓库 PR，或手动触发时各自的构建布尔输入为 `true`。
+  两者默认都开启，不得在常规 VideoTogether 验证中单独关闭 Win x64。
+- 无 tag 构建只允许上传 Actions artifact，不得创建或修改 GitHub Release。可复用工作流必须以传入的
+  `inputs.tag` 作为发布条件，空字符串时 Release 步骤必须跳过。
