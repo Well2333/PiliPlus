@@ -55,7 +55,7 @@ android {
     }
 
     buildFeatures {
-        if (project.hasProperty("dev")) {
+        if (project.hasProperty("dev") || project.hasProperty("ci")) {
             resValues = true
         }
     }
@@ -65,7 +65,14 @@ android {
             signingConfig = config ?: signingConfigs["debug"]
         }
         release {
-            if (project.hasProperty("dev")) {
+            if (project.hasProperty("ci")) {
+                applicationIdSuffix = ".dev.ci"
+                resValue(
+                    type = "string",
+                    name = "app_name",
+                    value = "PiliPlus dev CI",
+                )
+            } else if (project.hasProperty("dev")) {
                 applicationIdSuffix = ".dev"
                 resValue(
                     type = "string",
